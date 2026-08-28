@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Test suite before building (expect 596 tests, aggregate == discovery)
+      - name: Test suite before building (aggregate == discovery)
         run: |
           python -m unittest pr_guard.pr_guard_test 2>&1 | tee aggregate.log | tail -3
           grep -q "^OK" aggregate.log
@@ -24,8 +24,8 @@ jobs:
           python -m unittest discover -s . -t . -p "pr_guard*_test.py" 2>&1 | tee discovery.log | tail -3
           grep -q "^OK" discovery.log
           D=$(grep -oE 'Ran [0-9]+' discovery.log | grep -oE '[0-9]+')
-          if [ "$D" != "596" ] || [ "$A" != "596" ] || [ "$D" != "$A" ]; then
-            echo "MISMATCH: aggregate=$A discovery=$D (expected 596/596)"
+          if [ "$D" != "$A" ] || [ "$A" -lt 596 ]; then
+            echo "MISMATCH: aggregate=$A discovery=$D (routes differ or below the 596 extraction floor)"
             exit 1
           fi
       - name: Build wheel and sdist
