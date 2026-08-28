@@ -76,6 +76,18 @@ MODES
       reaction NEVER authorizes a merge by itself — thread state
       (survey/pre-merge) remains the merge authority, and the
       post-merge quiet-period watch still guards the landed tree.
+      --accept-standing (user request 2026-08-28): the opt-in fast
+      path for ALREADY-PASSED PRs — a standing DONE-classified
+      THUMBS_UP exits 0 immediately (the default wait holds it to
+      the full timeout: the round-5 rule refuses an unobserved +1,
+      and the round-25 rule withholds when no folded review names
+      the head — EVERY zero-findings pass). The explicit opt-in is
+      the authority for the observation and review-evidence gates;
+      the +1's own staleness CLASSIFICATION still applies (a +1
+      predating the head push or the boundary markers reads
+      THUMBS_UP_STALE and holds). Accepted risk: a standing pass
+      may predate an unposted new round — thread state stays the
+      merge authority.
 
   harden <pr>
       PR #36 round 1 (thread 3827397508): survey+merge is two processes —
@@ -224,7 +236,8 @@ USAGE = (
     "usage: pr_guard.py {survey|harden|pre-merge|resolve} <pr-number>\n"
     "       pr_guard.py merge <pr-number> <head-sha> <base-branch> "
     "[--quiet-secs <n>]\n"
-    "       pr_guard.py wait <pr-number> [--timeout-secs <n>] — poll ONLY "
+    "       pr_guard.py wait <pr-number> [--timeout-secs <n>] "
+    "[--accept-standing] — poll ONLY "
     "the review-bot reaction (THUMBS_UP = done, EYES = active, none =\n"
     "       not started / findings-after-EYES); exits 0 on a THUMBS_UP "
     "the wait WATCHED the round reach (a +1 already present at\n"
@@ -232,7 +245,13 @@ USAGE = (
     "stale, or none — and back, else timeout; thread 3867897766),\n"
     "       3 on EYES → NONE confirmed (review completed WITH "
     "findings — survey the threads: fix + receipt + re-wait), 1 on\n"
-    "       timeout, 2 on usage. A cold NONE (no EYES variant ever "
+    "       timeout, 2 on usage. --accept-standing: the opt-in fast "
+    "path for already-passed PRs — a standing DONE-classified\n"
+    "       THUMBS_UP exits 0 immediately, bypassing the observation "
+    "and review-evidence gates (the staleness classification\n"
+    "       still applies); the accepted risk: a standing pass may "
+    "predate an unposted new round — thread state stays the merge\n"
+    "       authority. A cold NONE (no EYES variant ever "
     "observed) past 10s prints the '@codex review' trigger HINT\n"
     "       exactly once (the bot may have failed to start) and keeps "
     "polling. The reaction is the DONE/ACTIVE signal — thread\n"
@@ -461,6 +480,19 @@ def main(argv: list[str]) -> int:
             return 2
         quiet_secs = int(rest[-1])
         rest = rest[:-2]
+    # --accept-standing (user request 2026-08-28, no thread ID): the
+    # wait-only valueless flag, stripped from ANY trailing position
+    # BEFORE the --timeout-secs strip so both orders normalize —
+    # `wait N --accept-standing --timeout-secs T` and `wait N
+    # --timeout-secs T --accept-standing` both reach the {3,5}-token
+    # shape check below. It never touches another mode's argv (an
+    # --accept-standing under survey/merge stays an operand and the
+    # shape check rejects it, exit 2).
+    accept_standing = False
+    if rest[1:2] == ["wait"] and "--accept-standing" in rest[3:]:
+        accept_standing = True
+        idx = rest.index("--accept-standing")
+        rest = rest[:idx] + rest[idx + 1 :]
     # PR #48: wait's deadline rides the same trailing-flag strip as
     # merge's --quiet-secs (the merge precedent — a digit flag value
     # or it is a usage error before any dispatch).
@@ -488,6 +520,12 @@ def main(argv: list[str]) -> int:
     if rest[1] == "merge":
         return merge_guarded(pr, rest[3], rest[4], quiet_secs)
     if rest[1] == "wait":
+        # --accept-standing (user request 2026-08-28): the flagged
+        # dispatch threads the opt-in through; the flagless call
+        # keeps its historic two-arg shape so the argv-contract pins
+        # (pr_guard_reaction_test) stand byte-identical — zero repins.
+        if accept_standing:
+            return wait_reaction(pr, timeout_secs, True)
         return wait_reaction(pr, timeout_secs)
     if rest[1] == "survey":
         survey(pr)

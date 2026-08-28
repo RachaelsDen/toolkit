@@ -529,6 +529,17 @@ readable probe is held to timeout — the survey is the authority;
 the stamp is wait-local state, never persisted, and the NEXT wait
 recovers (its own first probe re-stamps).
 
+--ACCEPT-STANDING lives here too (user request 2026-08-28, no
+thread ID — the standalone repo's first post-extraction feature):
+the opt-in fast path for already-passed PRs. A DONE-CLASSIFIED
+THUMBS_UP exits 0 immediately, standing or observed, bypassing the
+observation gates (rounds 5/7/9) and the review-evidence legs
+(rounds 17/18/20/22/25 — the zero-review-object '' shape
+included); the +1's own staleness CLASSIFICATION still applies
+(THUMBS_UP_STALE holds — only REACTION_DONE accepts). See
+wait_reaction's docstring and
+pr_guard_wait_accept_standing_test.
+
 Run: cd .omo/start-work && python3 -m unittest pr_guard_reaction_round31_test -v
 """
 
@@ -568,7 +579,7 @@ FINDINGS_GRACE_PROBES = 3
 # the head stream).
 
 
-def wait_reaction(pr: int, timeout_secs: int) -> int:
+def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> int:
     """The `wait` mode: poll ONLY the reaction until THUMBS_UP/timeout.
 
     First probe immediate, then every WAIT_INTERVAL_SECS (5s, polite)
@@ -760,6 +771,23 @@ def wait_reaction(pr: int, timeout_secs: int) -> int:
     NONE->+1 with NO EYES ever observed holds to timeout (the
     replacement path still exits 0 when a baseline exists); the
     survey is the authority.
+
+    --ACCEPT-STANDING (user request 2026-08-28, no thread ID): the
+    opt-in fast path for ALREADY-PASSED PRs — on a PR whose bot
+    finished before the wait began, the round-5 rule refuses the
+    unobserved +1 and the round-25 rule withholds when no folded
+    review names the head (EVERY zero-findings pass: no findings =>
+    no review object), so the default wait holds a standing THUMBS_UP
+    to the FULL timeout after an explicit verdict. With the flag, a
+    DONE-CLASSIFIED THUMBS_UP exits 0 immediately (standing or
+    observed): the user's explicit opt-in is the authority for the
+    observation and review-evidence gates. The +1's own staleness
+    CLASSIFICATION still applies — a +1 predating the head push or
+    the boundary markers reads THUMBS_UP_STALE and holds (a stale
+    verdict is not "codex said this PR is fine"); only state ==
+    REACTION_DONE accepts. The accepted risk: a standing pass may
+    predate an unposted new round — thread state remains the merge
+    authority.
     """
     start = pr_guard_reaction.time.monotonic()
     deadline = start + timeout_secs
@@ -1020,6 +1048,28 @@ def wait_reaction(pr: int, timeout_secs: int) -> int:
             trigger = review_head = base_oid = base_bound = base_event_bound = head_bound_now = ""
             request_ids, trigger_ids, review_stamp = set(), set(), ""
         elapsed = pr_guard_reaction.time.monotonic() - start
+        # --accept-standing (user request 2026-08-28, no thread ID —
+        # the standalone repo's first post-extraction feature): the
+        # OPT-IN fast path for already-passed PRs. A DONE-CLASSIFIED
+        # THUMBS_UP exits 0 immediately, standing or observed — the
+        # explicit opt-in IS the authority for the observation gates
+        # (round 5's saw_non_done, round 7's replaced, round 9's
+        # watermark) and the review-evidence legs (rounds 17/18/20/22/
+        # 25's head_bound/review_head/review_stamp — the zero-review-
+        # object '' shape included: every zero-findings pass posts no
+        # review object, so round 25 withholds on it by default).
+        # What it NEVER bypasses: the +1's own staleness
+        # CLASSIFICATION at the reading (bot_reaction_reading's
+        # round-bounds binding) — a +1 predating the head push or the
+        # boundary markers reads THUMBS_UP_STALE and holds to timeout
+        # (a stale verdict is not "codex said this PR is fine"); only
+        # state == REACTION_DONE accepts, never STALE/UNVERIFIED/
+        # UNREADABLE. Placement: BEFORE every latch/exit leg and the
+        # HOLDING banners, so the opt-in path runs no gate machinery
+        # at all; the default (flagless) path is byte-identical.
+        if accept_standing and state == pr_guard_reaction.REACTION_DONE:
+            print(f"WAIT DONE (ACCEPTED STANDING): THUMBS_UP at {elapsed:.0f}s — the --accept-standing opt-in bypassed the observation and review-evidence gates (rounds 5/25); the staleness classification still applied (only a DONE-classified +1 accepts). The accepted risk: a standing pass may predate an unposted new round — thread state remains the merge authority (run survey/pre-merge before any merge).")
+            return 0
         # Thread 3868443452 (round 8, P1): the reset runs BEFORE this
         # probe's own reading contributes — an arming (or a DONE)
         # certified under the NEW head must not ride a latch armed
@@ -1386,8 +1436,7 @@ def wait_reaction(pr: int, timeout_secs: int) -> int:
         # 0 when a baseline exists); the survey is the authority.
         # 3870734078's alternative "a later bot marker" opener has
         # exactly the same no-identity problem, hence EYES-only.
-        if none_arming_gated and state == pr_guard_reaction.REACTION_ACTIVE:
-            none_arming_gated = False
+        if none_arming_gated and state == pr_guard_reaction.REACTION_ACTIVE: none_arming_gated = False
         if pr_guard_reaction.arms_transition_latch(state) and not (
             none_arming_gated and state == pr_guard_reaction.REACTION_NONE
         ):
@@ -1512,8 +1561,7 @@ def wait_reaction(pr: int, timeout_secs: int) -> int:
         # current-head) arms the findings precursor; ANY variant
         # (stale/unverified included) permanently proves the bot
         # started, so the cold-NONE hint can never fire afterwards.
-        if state == pr_guard_reaction.REACTION_ACTIVE:
-            saw_verified_eyes = True; eyes_watermark = plus_one
+        if state == pr_guard_reaction.REACTION_ACTIVE: saw_verified_eyes = True; eyes_watermark = plus_one
         if state in pr_guard_reaction.EYES_VARIANTS:
             saw_any_eyes = True
         if state != last:
@@ -1678,8 +1726,7 @@ def wait_reaction(pr: int, timeout_secs: int) -> int:
             findings_absent_streak = 0
             if state != "UNREADABLE":
                 cold_none_since = None
-        if state == pr_guard_reaction.REACTION_DONE and not held_plus_one:
-            held_plus_one = plus_one
+        if state == pr_guard_reaction.REACTION_DONE and not held_plus_one: held_plus_one = plus_one
         # Thread 3874769253 (PR #49 round 27, P2): the timeout fires
         # only when THIS probe began at-or-after the deadline — a
         # probe that started before it but whose later head/boundary
