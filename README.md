@@ -53,7 +53,7 @@ order, and the tool refuses to run (exit 2) when nothing resolves:
 
 ```
 pr-guard [--repo OWNER/NAME] survey     <pr>
-pr-guard [--repo OWNER/NAME] wait       <pr> [--timeout-secs <n>]
+pr-guard [--repo OWNER/NAME] wait       <pr> [--timeout-secs <n>] [--accept-standing]
 pr-guard [--repo OWNER/NAME] resolve    <pr>
 pr-guard [--repo OWNER/NAME] pre-merge  <pr>
 pr-guard [--repo OWNER/NAME] merge      <pr> <head-sha> <base> [--quiet-secs <n>]
@@ -67,6 +67,13 @@ pr-guard [--repo OWNER/NAME] harden     <pr>
   terminal state or the timeout (default 600 s). Exit 0 = a watched
   THUMBS_UP; 3 = findings (EYES -> NONE confirmed); 1 = timeout;
   2 = usage. The reaction never authorizes a merge by itself.
+  `--accept-standing` is the opt-in fast path for already-passed
+  PRs: a standing, DONE-classified THUMBS_UP exits 0 immediately,
+  bypassing the observation and review-evidence gates (the staleness
+  classification still applies — a +1 predating the head push or
+  round boundary keeps holding). The accepted risk: a standing pass
+  may predate an unposted new round; thread state remains the merge
+  authority.
 - **resolve <pr>** — after receipts land, resolve ONLY receipted
   threads, re-verifying each immediately before and after its
   mutation; refuses while any DANGER thread remains.
@@ -98,7 +105,11 @@ A cold NONE (no EYES variant ever observed) lasting >= 10 s prints the
 `@codex review` trigger HINT exactly once — the bot may have failed to
 start; the tool never posts comments itself. The reaction is the cheap
 DONE/ACTIVE signal only: thread state (survey / pre-merge) stays the
-merge authority.
+merge authority. For already-passed PRs, `wait --accept-standing` is
+the documented opt-in fast path: it accepts a standing THUMBS_UP that
+passed the staleness classification without the observed-transition
+and review-evidence gates — the risk accepted is that a standing pass
+may predate an unposted new round.
 
 ## Tests
 
@@ -106,8 +117,8 @@ The package deliberately ships its own test modules — they are the
 tool's hardening record (see below). Run the full suite from a checkout:
 
 ```sh
-python3 -m unittest pr_guard.pr_guard_test        # aggregate: 596 tests
-python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 596
+python3 -m unittest pr_guard.pr_guard_test        # aggregate: 603 tests
+python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 603
 ```
 
 Both loader routes must report the same count with zero failures — the

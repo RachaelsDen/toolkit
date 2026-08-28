@@ -984,6 +984,19 @@ the suite PAIR split at the 250 pure-LOC ceiling, the round-27
 precedent; six paginating-fixture builders gained baseRefOid —
 round-25 seam maintenance, every assertion byte-identical).
 
+pr_guard_wait_accept_standing_test (user request 2026-08-28, no
+thread ID — the standalone repo's first post-extraction feature):
+the wait mode's --accept-standing opt-in fast path for ALREADY-PASSED
+PRs — a standing DONE-classified THUMBS_UP exits 0 immediately,
+bypassing the round-5 observation gates and the round-17/18/20/22/25
+review-evidence legs (the zero-review-object '' shape included: every
+zero-findings pass posts no review object), while the +1's own
+staleness CLASSIFICATION still applies (a +1 predating the head push
+reads THUMBS_UP_STALE and holds — only state == REACTION_DONE
+accepts) and the flagless default path is pinned byte-identical (the
+argv strip works in either flag order; the flagless dispatch keeps
+its historic two-arg shape) (596 -> 603 tests).
+
 Run: cd .omo/start-work && python3 -m unittest pr_guard_test -v
 No network: every suite is pure; nothing shells out to gh.
 """
@@ -1088,6 +1101,7 @@ _SUITES = (
     "pr_guard_reaction_round32_test",
     "pr_guard_reaction_round33_test",
     "pr_guard_reaction_round3_test",
+    "pr_guard_wait_accept_standing_test",
     "pr_guard_reaction_round4_gate_test",
     "pr_guard_reaction_round4_test",
     "pr_guard_reaction_round5_test",
