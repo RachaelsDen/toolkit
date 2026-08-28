@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Aggregate suite (expect 596 tests)
+        run: |
+          python -m unittest pr_guard.pr_guard_test 2>&1 | tee aggregate.log | tail -3
+          grep -E "^Ran [0-9]+ tests?" aggregate.log
+          test "$(grep -cE '^(OK|FAILED)' aggregate.log)" -eq 1
+          grep -q "^OK" aggregate.log
+          A=$(grep -oE 'Ran [0-9]+' aggregate.log | grep -oE '[0-9]+')
+          echo "aggregate=$A"
+          echo "AGGREGATE=$A" >> "$GITHUB_ENV"
+      - name: Discovery parity (expect 596 tests, equal to aggregate)
+        run: |
+          python -m unittest discover -s . -t . -p "pr_guard*_test.py" 2>&1 | tee discovery.log | tail -3
+          grep -q "^OK" discovery.log
+          D=$(grep -oE 'Ran [0-9]+' discovery.log | grep -oE '[0-9]+')
+          echo "discovery=$D"
+          if [ "$D" != "596" ] || [ "${AGGREGATE}" != "596" ] || [ "$D" != "${AGGREGATE}" ]; then
+            echo "MISMATCH: aggregate=${AGGREGATE} discovery=$D (expected 596/596)"
+            exit 1
+          fi
