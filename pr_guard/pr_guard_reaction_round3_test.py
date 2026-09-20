@@ -298,9 +298,7 @@ class BannerBoundedReadTests(unittest.TestCase):
         with mock.patch.object(
             pr_guard_threads,
             "fetch_threads",
-            return_value=[thread("3867000001", "resolved")],
-        ), mock.patch(
-            "pr_guard.pr_guard_issue_comments.fetch_finding_comments", return_value=[]
+            return_value=([thread("3867000001", "resolved")], []),
         ), mock.patch.object(
             pr_guard_reaction.subprocess, "run", side_effect=self.stalled_run(calls)
         ), redirect_stdout(out):

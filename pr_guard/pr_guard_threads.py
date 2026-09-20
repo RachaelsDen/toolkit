@@ -28,7 +28,7 @@ from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
 from .pr_guard_reaction_banner import reaction_banner
 
 if TYPE_CHECKING:
-    from .pr_guard_issue_comments import FindingComment
+    from .pr_guard_issue_comments import FindingComment, IssueComment
 
 __all__ = [
     "BOT_AUTHORS",
@@ -45,10 +45,10 @@ __all__ = [
 PAGE_SIZE = 100
 
 THREADS_QUERY = f"""
-query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
+query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor: String, $fetchThreads: Boolean!, $fetchComments: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     pullRequest(number: $number) {{
-      reviewThreads(first: {PAGE_SIZE}, after: $cursor) {{
+      reviewThreads(first: {PAGE_SIZE}, after: $cursor) @include(if: $fetchThreads) {{
         pageInfo {{ endCursor hasNextPage }}
         nodes {{
           id
@@ -57,6 +57,10 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
           head: comments(first: 1) {{ nodes {{ databaseId }} }}
           last: comments(last: 1) {{ nodes {{ databaseId author {{ login __typename }} body }} }}
         }}
+      }}
+      comments(first: {PAGE_SIZE}, after: $ccursor) @include(if: $fetchComments) {{
+        pageInfo {{ endCursor hasNextPage }}
+        nodes {{ databaseId author {{ login __typename }} body createdAt updatedAt }}
       }}
     }}
   }}
@@ -115,10 +119,16 @@ def gh_graphql(query: str, variables: dict) -> dict:
     return body["data"]
 
 
-def fetch_threads(pr: int) -> list[Thread]:
+def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
+    from .pr_guard_issue_comments import IssueComment
+
     threads: list[Thread] = []
+    comments: list[IssueComment] = []
     cursor: str | None = None
-    while True:
+    ccursor: str | None = None
+    fetch_threads_page = True
+    fetch_comments_page = True
+    while fetch_threads_page or fetch_comments_page:
         data = gh_graphql(
             THREADS_QUERY,
             {
@@ -126,32 +136,52 @@ def fetch_threads(pr: int) -> list[Thread]:
                 "name": REPO_NAME,
                 "number": pr,
                 "cursor": cursor,
+                "ccursor": ccursor,
+                "fetchThreads": fetch_threads_page,
+                "fetchComments": fetch_comments_page,
             },
         )
         root = (data.get("repository") or {}).get("pullRequest")
         if root is None:
             die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-        conn = root["reviewThreads"]
-        for node in conn["nodes"]:
-            head = node["head"]["nodes"]
-            last = node["last"]["nodes"]
-            last_comment = last[-1] if last else {}
-            author = last_comment.get("author") or {}
-            threads.append(
-                Thread(
-                    node_id=node["id"],
-                    head_id=head[0]["databaseId"] if head else None,
-                    last_id=last_comment.get("databaseId"),
-                    last_author=author.get("login"),
-                    last_author_type=author.get("__typename"),
-                    last_body=last_comment.get("body") or "",
-                    is_resolved=node["isResolved"],
-                    is_outdated=node["isOutdated"],
+        if fetch_threads_page:
+            conn = root["reviewThreads"]
+            for node in conn["nodes"]:
+                head = node["head"]["nodes"]
+                last = node["last"]["nodes"]
+                last_comment = last[-1] if last else {}
+                author = last_comment.get("author") or {}
+                threads.append(
+                    Thread(
+                        node_id=node["id"],
+                        head_id=head[0]["databaseId"] if head else None,
+                        last_id=last_comment.get("databaseId"),
+                        last_author=author.get("login"),
+                        last_author_type=author.get("__typename"),
+                        last_body=last_comment.get("body") or "",
+                        is_resolved=node["isResolved"],
+                        is_outdated=node["isOutdated"],
+                    )
                 )
-            )
-        if not conn["pageInfo"]["hasNextPage"]:
-            return threads
-        cursor = conn["pageInfo"]["endCursor"]
+            fetch_threads_page = conn["pageInfo"]["hasNextPage"]
+            cursor = conn["pageInfo"]["endCursor"]
+        if fetch_comments_page:
+            conn = root["comments"]
+            for node in conn["nodes"]:
+                author = node.get("author") or {}
+                comments.append(
+                    IssueComment(
+                        id=node["databaseId"],
+                        author=author.get("login"),
+                        author_type=author.get("__typename"),
+                        created_at=node["createdAt"],
+                        updated_at=node["updatedAt"],
+                        body=node["body"],
+                    )
+                )
+            fetch_comments_page = conn["pageInfo"]["hasNextPage"]
+            ccursor = conn["pageInfo"]["endCursor"]
+    return threads, comments
 
 
 def excerpt(body: str, limit: int = 72) -> str:
@@ -160,15 +190,12 @@ def excerpt(body: str, limit: int = 72) -> str:
 
 
 def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
-    from .pr_guard_issue_comments import fetch_finding_comments, report
+    from .pr_guard_issue_comments import classify_finding_comments, report
 
-    finding_comments = fetch_finding_comments(pr)
-    # Thread 4055793477: finish every survey's snapshot with the
-    # resolvable review-thread authority immediately before its caller
-    # decides. A comment landing after this REST read shares the existing
-    # post-thread-read exposure; the server ruleset and post-merge quiet
-    # watch already cover that residual class for thread comments.
-    threads = fetch_threads(pr)
+    # Thread 4055845768: both gate-bearing comment sources come from the
+    # same GraphQL request before the caller consumes this survey.
+    threads, comments = fetch_threads(pr)
+    finding_comments = classify_finding_comments(comments)
     for thread in threads:
         thread.classification = classify(thread)
         author = thread.last_author if thread.last_author is not None else "(unknown)"

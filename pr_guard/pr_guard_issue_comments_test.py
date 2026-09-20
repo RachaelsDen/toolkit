@@ -5,9 +5,7 @@ invisible to reviewThreads. No network: subprocess is patched at the gh seam.
 """
 
 import io
-import json
 import os
-import subprocess
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -132,93 +130,28 @@ class FindingClassificationTests(unittest.TestCase):
         self.assertIn("receipted-COMMENT comment=2 author=bot", out.getvalue())
 
 
-class FindingFetchTests(unittest.TestCase):
-    def test_fetch_uses_paginated_slurped_issue_comments(self):
-        # Given: two paginated REST pages with a bot finding then a receipt.
-        # When: fetch_finding_comments runs. Then: it returns the receipted finding.
-        calls = []
-        pages = [
-            [{"id": 1, "user": {"login": "chatgpt-codex-connector"}, "created_at": "2026-09-19T10:00:00Z", "body": "P1 Badge"}],
-            [{"id": 2, "user": {"login": "RachaelsDen"}, "created_at": "2026-09-19T10:01:00Z", "body": "Fixed."}],
-        ]
-
-        def fake_run(argv, **kwargs):
-            calls.append((argv, kwargs))
-            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(pages), stderr="")
-
-        with mock.patch.object(
-            pr_guard_issue_comments.subprocess, "run", side_effect=fake_run
-        ):
-            findings = pr_guard_issue_comments.fetch_finding_comments(68)
-        self.assertEqual([(item.id, item.classification) for item in findings], [(1, "receipted")])
-        self.assertEqual(
-            calls[0][0],
-            [
-                "gh",
-                "api",
-                "repos/RachaelsDen/UR-lorebook/issues/68/comments",
-                "--paginate",
-                "--slurp",
-            ],
-        )
-        self.assertEqual(calls[0][1]["env"]["GH_HOST"], "github.com")
-
-    def test_fetch_ignores_comment_with_null_user(self):
-        # Given: a REST issue-comment payload whose actor was deleted.
-        # When: finding comments are fetched. Then: it is ignored without
-        # failing the scan.
-        pages = [
-            [
-                {
-                    "id": 1,
-                    "user": None,
-                    "created_at": "2026-09-19T10:00:00Z",
-                    "body": "P1 Badge",
-                }
-            ]
-        ]
-
-        def fake_run(argv, **kwargs):
-            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(pages), stderr="")
-
-        with mock.patch.object(
-            pr_guard_issue_comments.subprocess, "run", side_effect=fake_run
-        ):
-            findings = pr_guard_issue_comments.fetch_finding_comments(68)
-        self.assertEqual(findings, [])
-
-
 class SurveyAndGateTests(unittest.TestCase):
-    def test_gate_survey_fetches_comments_before_threads(self):
-        # Given: a bannerless gate survey whose fetchers record order.
-        # When: the survey runs. Then: review threads are the final
-        # authority read immediately before the decision.
+    def test_gate_survey_fetches_one_combined_snapshot(self):
+        # Given: a bannerless gate survey whose combined fetch records calls.
+        # When: the survey runs. Then: it consumes one server snapshot.
         calls = []
-
-        def fetch_comments(pr):
-            calls.append("comments")
-            return []
 
         def fetch_threads(pr):
-            calls.append("threads")
-            return [resolved_thread()]
+            calls.append("snapshot")
+            return [resolved_thread()], []
 
         with mock.patch.object(
-            pr_guard_issue_comments, "fetch_finding_comments", side_effect=fetch_comments
-        ), mock.patch.object(
             pr_guard_threads, "fetch_threads", side_effect=fetch_threads
         ), redirect_stdout(io.StringIO()):
             pr_guard_threads.survey(68, reaction=False)
-        self.assertEqual(calls, ["comments", "threads"])
+        self.assertEqual(calls, ["snapshot"])
 
     def test_survey_summary_includes_zero_comment_findings(self):
         # Given: a clean review-thread snapshot with no finding comments.
         # When: survey runs bannerless. Then: its stable summary reports zero.
         out = io.StringIO()
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[resolved_thread()]
-        ), mock.patch.object(
-            pr_guard_issue_comments, "fetch_finding_comments", return_value=[]
+            pr_guard_threads, "fetch_threads", return_value=([resolved_thread()], [])
         ), redirect_stdout(out):
             snapshot = pr_guard_threads.survey(68, reaction=False)
         self.assertEqual(len(snapshot), 1)

@@ -4,21 +4,18 @@ user-observed 2026-09-19: first codex finding posted as an issue comment,
 invisible to reviewThreads.
 """
 
-import json
 import re
-import subprocess
 from dataclasses import dataclass
 from typing import TypeGuard
 
 from .pr_guard_classify import BOT_AUTHORS
-from .pr_guard_common import RECEIPT_AUTHORS, REPO_NAME, REPO_OWNER, die, gh_env
+from .pr_guard_common import RECEIPT_AUTHORS
 from .pr_guard_threads import excerpt
 
 __all__ = [
     "FindingComment",
     "IssueComment",
     "classify_finding_comments",
-    "fetch_finding_comments",
     "login_is_bot",
     "report",
 ]
@@ -34,6 +31,8 @@ class IssueComment:
     author: str | None
     created_at: str
     body: str
+    author_type: str | None = None
+    updated_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,19 +54,43 @@ def login_is_bot(login: str | None) -> TypeGuard[str]:
     )
 
 
+def comment_is_bot(comment: IssueComment) -> bool:
+    return comment.author_type == "Bot" or login_is_bot(comment.author)
+
+
+def comment_is_trusted_receipt(comment: IssueComment) -> bool:
+    return comment.author in RECEIPT_AUTHORS and not comment_is_bot(comment)
+
+
+def comment_key(comment: IssueComment) -> tuple[str, int]:
+    return comment.created_at, comment.id
+
+
+def finding_key(comment: IssueComment) -> tuple[str, int]:
+    return comment.updated_at or comment.created_at, comment.id
+
+
 def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComment]:
-    ordered = sorted(comments, key=lambda item: (item.created_at, item.id))
+    ordered = sorted(comments, key=comment_key)
     findings: list[FindingComment] = []
     for comment in ordered:
-        if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
-            continue
-        classification = "DANGER"
-        if any(
-            receipt.author in RECEIPT_AUTHORS
-            and (receipt.created_at, receipt.id) > (comment.created_at, comment.id)
-            for receipt in ordered
+        if (
+            comment.author is None
+            or not comment_is_bot(comment)
+            or FINDING_BADGE.search(comment.body) is None
         ):
-            classification = "receipted"
+            continue
+        replies = [
+            reply
+            for reply in ordered
+            if comment_key(reply) > finding_key(comment)
+            and (comment_is_bot(reply) or comment_is_trusted_receipt(reply))
+        ]
+        classification = (
+            "receipted"
+            if replies and comment_is_trusted_receipt(replies[-1])
+            else "DANGER"
+        )
         findings.append(
             FindingComment(
                 comment.id,
@@ -78,35 +101,6 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
             )
         )
     return findings
-
-
-def fetch_finding_comments(pr: int) -> list[FindingComment]:
-    proc = subprocess.run(
-        [
-            "gh",
-            "api",
-            f"repos/{REPO_OWNER}/{REPO_NAME}/issues/{pr}/comments",
-            "--paginate",
-            "--slurp",
-        ],
-        capture_output=True,
-        text=True,
-        env=gh_env(),
-    )
-    if proc.returncode != 0:
-        die(f"gh api exited {proc.returncode}: {proc.stderr.strip()}")
-    pages = json.loads(proc.stdout)
-    comments = [
-        IssueComment(
-            id=int(item["id"]),
-            author=(item.get("user") or {}).get("login"),
-            created_at=str(item["created_at"]),
-            body=str(item["body"]),
-        )
-        for page in pages
-        for item in page
-    ]
-    return classify_finding_comments(comments)
 
 
 def report(comments: list[FindingComment]) -> None:
