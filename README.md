@@ -69,10 +69,9 @@ pr-guard [--repo OWNER/NAME] harden     <pr>
   THUMBS_UP; 3 = findings (EYES -> NONE confirmed); 1 = timeout;
   2 = usage. The reaction never authorizes a merge by itself.
   `--accept-standing` is the opt-in fast path for already-passed
-  PRs: a standing, DONE-classified THUMBS_UP exits 0 immediately,
-  bypassing the observation and review-evidence gates (the staleness
-  classification still applies — a +1 predating the head push or
-  round boundary keeps holding). The accepted risk: a standing pass
+  PRs: a standing, DONE-classified THUMBS_UP whose +1 postdates every
+  known request/trigger boundary exits 0 immediately, bypassing the
+  observation and review-evidence gates. The accepted risk: a standing pass
   may predate an unposted new round; thread state remains the merge
   authority.
 - **resolve <pr>** — after receipts land, resolve ONLY receipted
@@ -109,8 +108,8 @@ start; the tool never posts comments itself. The reaction is the cheap
 DONE/ACTIVE signal only: thread state (survey / pre-merge) stays the
 merge authority. For already-passed PRs, `wait --accept-standing` is
 the documented opt-in fast path: it accepts a standing THUMBS_UP that
-passed the staleness classification without the observed-transition
-and review-evidence gates — the risk accepted is that a standing pass
+postdates every known request/trigger boundary without the observed-transition
+  and review-evidence gates — the risk accepted is that a standing pass
 may predate an unposted new round.
 
 ## Tests
@@ -119,8 +118,8 @@ The package deliberately ships its own test modules — they are the
 tool's hardening record (see below). Run the full suite from a checkout:
 
 ```sh
-python3 -m unittest pr_guard.pr_guard_test        # aggregate: 642 tests
-python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 642
+python3 -m unittest pr_guard.pr_guard_test        # aggregate: 646 tests
+python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 646
 ```
 
 Both loader routes must report the same count with zero failures — the
