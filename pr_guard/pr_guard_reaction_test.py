@@ -279,7 +279,9 @@ class SurveyIntegrationTests(unittest.TestCase):
         # first-class BOT REACTION line carrying the thread label.
         out = io.StringIO()
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[thread("3867000001", "resolved")]
+            pr_guard_threads,
+            "fetch_threads",
+            return_value=([thread("3867000001", "resolved")], []),
         ), mock.patch.object(
             pr_guard_reaction, "gh_reactions", return_value=[react("+1")]
         ), mock.patch.object(

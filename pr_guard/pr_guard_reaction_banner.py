@@ -59,16 +59,27 @@ from .pr_guard_reaction_latch import render_state
 BANNER_TIMEOUT_SECS = 15.0
 
 
-def reaction_banner(pr: int, thread_labels: list[str] | None = None) -> str:
+def reaction_banner(
+    pr: int,
+    thread_labels: list[str] | None = None,
+    comment_labels: list[str] | None = None,
+) -> str:
     """Survey's BOT REACTION line — FAIL-OPEN by design (see module)."""
     # Round 7's seam rule (thread 3868158304): the reading is called
     # THROUGH the reaction module's namespace — tests patch
     # pr_guard_reaction.bot_review_reaction / subprocess / head_ref_oid
     # and every patch must keep pointing at ONE home after this
     # round-11 split.
-    if thread_labels:
+    if thread_labels and comment_labels:
+        threads = ", ".join(thread_labels[:3]) + ("…" if len(thread_labels) > 3 else "")
+        comments = ", ".join(comment_labels[:3]) + ("…" if len(comment_labels) > 3 else "")
+        authority = f"threads {threads} and issue-comment findings {comments} are the authority"
+    elif thread_labels:
         shown = ", ".join(thread_labels[:3]) + ("…" if len(thread_labels) > 3 else "")
         authority = f"threads {shown} are the authority"
+    elif comment_labels:
+        shown = ", ".join(comment_labels[:3]) + ("…" if len(comment_labels) > 3 else "")
+        authority = f"issue-comment findings {shown} are the authority"
     else:
         authority = "thread state is the authority"
     try:

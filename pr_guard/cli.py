@@ -225,6 +225,7 @@ from .pr_guard_repo import parse_repo_slug, resolve_repo_target
 from .pr_guard_rulesets import default_branch, fetch_gate_rulesets, gate_covers
 from .pr_guard_rulesets import gh_rest_pr, harden
 from .pr_guard_threads import (
+    Thread,
     classify,
     refetch_thread,
     resolve_thread,
@@ -371,7 +372,11 @@ def resolve(pr: int) -> int:
             "(pre-merge must report CLEAN); nothing was resolved."
         )
         return 1
-    targets = [t for t in threads if t.classification == "receipted"]
+    targets = [
+        thread
+        for thread in threads
+        if isinstance(thread, Thread) and thread.classification == "receipted"
+    ]
     if not targets:
         print("NOTHING TO RESOLVE: no unresolved receipted threads.")
         return 0
