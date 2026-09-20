@@ -296,7 +296,7 @@ class CombinedSnapshotTests(unittest.TestCase):
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
+                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z", "body": "P1 Badge"}]},
                     }
                 }
             },
@@ -314,7 +314,7 @@ class CombinedSnapshotTests(unittest.TestCase):
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
+                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "updatedAt": "2026-09-20T10:00:00Z", "body": "Fixed."}, {"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z", "body": "P1 Badge"}]},
                     }
                 }
             },

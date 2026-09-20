@@ -1011,6 +1011,7 @@ _SUITES = (
     "pr_guard_issue_comments_test",
     "pr_guard_issue_comments_snapshot_test",
     "pr_guard_issue_comments_round2_test",
+    "pr_guard_issue_comments_round3_test",
     "pr_guard_fnmatch_test",
     "pr_guard_fnmatch_hyphen_test",
     "pr_guard_fnmatch_reversed_test",

@@ -196,8 +196,8 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                 fetch_comments_page = conn["pageInfo"]["hasNextPage"]
                 ccursor = conn["pageInfo"]["endCursor"]
         current_identity, current_threads, current_comments = read_identity(pr, gh_graphql, len(held_threads), len(held_comments))
-        # This dedicated bracket detects held-node additions, removals, and edits.
-        # Same-second edits whose updatedAt remains byte-equal are the documented-open class.
+        # Thread 4057345626: this bracket includes classification inputs and body hashes,
+        # closing the former same-second body-edit class with no classification-relevant residual.
         if (
             initial_identity == current_identity
             and set(held_threads) == current_threads

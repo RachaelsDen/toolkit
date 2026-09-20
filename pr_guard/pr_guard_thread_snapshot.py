@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from hashlib import sha256
 from typing import Final
 
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die
@@ -30,7 +31,7 @@ query($owner: String!, $name: String!, $number: Int!, $threadCursor: String, $co
       comments(first: 1) {
         totalCount
       }
-      lastComment: comments(last: 1) { nodes { databaseId updatedAt } }
+      lastComment: comments(last: 1) { nodes { databaseId updatedAt body } }
       heldThreads: reviewThreads(last: $threadLimit, before: $threadCursor) @include(if: $fetchThreads) {
         pageInfo { startCursor hasPreviousPage }
         nodes {
@@ -44,7 +45,7 @@ query($owner: String!, $name: String!, $number: Int!, $threadCursor: String, $co
       }
       heldComments: comments(last: $commentLimit, before: $commentCursor) @include(if: $fetchComments) {
         pageInfo { startCursor hasPreviousPage }
-        nodes { databaseId updatedAt }
+        nodes { databaseId updatedAt body }
       }
     }
   }
@@ -64,38 +65,28 @@ def thread_identity(node: dict) -> tuple:
         comment.get("updatedAt"),
         author.get("login"),
         author.get("__typename"),
-        comment.get("body") or "",
+        body_hash(comment.get("body")),
     )
 
 
+def body_hash(body: str | None) -> str:
+    return sha256((body or "").encode()).hexdigest()
+
+
 def comment_identity(node: dict) -> tuple:
-    return node["databaseId"], node.get("updatedAt")
+    return node["databaseId"], node.get("updatedAt"), body_hash(node.get("body"))
 
 
 def identity_from_root(root: dict) -> MutationIdentity:
     last_comment = root["lastComment"]["nodes"]
     last_thread = root["lastThread"]["nodes"]
     last_thread_node = last_thread[-1] if last_thread else None
-    last_thread_comments = last_thread_node["last"]["nodes"] if last_thread_node else []
-    last_thread_comment = last_thread_comments[-1] if last_thread_comments else None
-    last_thread_author = (last_thread_comment or {}).get("author") or {}
     return (
         root["updatedAt"],
         root["comments"]["totalCount"],
         root["reviewThreads"]["totalCount"],
         comment_identity(last_comment[-1]) if last_comment else None,
-        (
-            last_thread_node["id"],
-            last_thread_node["isResolved"],
-            last_thread_node["isOutdated"],
-            (last_thread_comment or {}).get("databaseId"),
-            (last_thread_comment or {}).get("updatedAt"),
-            last_thread_author.get("login"),
-            last_thread_author.get("__typename"),
-            (last_thread_comment or {}).get("body") or "",
-        )
-        if last_thread_node
-        else None,
+        thread_identity(last_thread_node) if last_thread_node else None,
     )
 
 
