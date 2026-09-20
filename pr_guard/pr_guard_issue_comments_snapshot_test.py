@@ -3,8 +3,7 @@
 import unittest
 from unittest import mock
 
-from . import pr_guard_issue_comments
-from . import pr_guard_threads
+from . import pr_guard_issue_comments, pr_guard_threads
 
 
 def comment(comment_id, author, created_at, body, updated_at=None, author_type="User"):
