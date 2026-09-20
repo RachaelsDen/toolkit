@@ -178,7 +178,8 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
-                        "comments": {"nodes": []},
+                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
             },
@@ -218,7 +219,8 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
-                        "comments": {"nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
+                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
                     }
                 }
             },
@@ -240,7 +242,9 @@ class CombinedSnapshotTests(unittest.TestCase):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual([item.id for item in comments], [1, 2])
         self.assertFalse(calls[1][1]["fetchComments"])
-        self.assertEqual(calls[2][0], pr_guard_threads.COMMENTS_LAST_QUERY)
+        from .pr_guard_thread_snapshot import REVISION_QUERY
+
+        self.assertEqual(calls[2][0], REVISION_QUERY)
 
 
 if __name__ == "__main__":

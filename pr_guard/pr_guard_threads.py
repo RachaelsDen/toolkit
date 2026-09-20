@@ -67,16 +67,6 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
 }}
 """
 
-COMMENTS_LAST_QUERY = """
-query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      comments(last: 1) { nodes { databaseId updatedAt } }
-    }
-  }
-}
-"""
-
 RESOLVE_MUTATION = """
 mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
@@ -127,20 +117,6 @@ def gh_graphql(query: str, variables: dict) -> dict:
     if body.get("errors"):
         die(f"GraphQL errors: {json.dumps(body['errors'])}")
     return body["data"]
-
-
-def last_comment_key(pr: int) -> tuple[int, str] | None:
-    data = gh_graphql(
-        COMMENTS_LAST_QUERY,
-        {"owner": REPO_OWNER, "name": REPO_NAME, "number": pr},
-    )
-    root = (data.get("repository") or {}).get("pullRequest")
-    if root is None:
-        die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-    nodes = root["comments"]["nodes"]
-    if not nodes:
-        return None
-    return nodes[-1]["databaseId"], nodes[-1]["updatedAt"]
 
 
 def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
@@ -207,11 +183,11 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                 )
             fetch_comments_page = conn["pageInfo"]["hasNextPage"]
             ccursor = conn["pageInfo"]["endCursor"]
-    # The decision snapshot is the union; multi-page reads bracket it
-    # with this tail revalidation before returning it to a gate caller.
-    last = comments[-1] if comments else None
-    collected_last = (last.id, last.updated_at) if last else None
-    if page_count > 1 and last_comment_key(pr) != collected_last:
+    # The decision snapshot is the union; re-list both connections' IDs
+    # and revisions after pagination before a gate caller consumes it.
+    from .pr_guard_thread_snapshot import connections_match
+
+    if page_count > 1 and not connections_match(pr, gh_graphql, threads, comments):
         return fetch_threads(pr)
     return threads, comments
 
