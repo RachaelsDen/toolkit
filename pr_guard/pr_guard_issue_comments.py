@@ -23,6 +23,7 @@ __all__ = [
 FINDING_BADGE = re.compile(
     r"\bP[012]\s+Badge\b|^\s*\*\*<sub>.*?\bBadge\b", re.DOTALL
 )
+ALL_FINDINGS_RECEIPT = re.compile(r"\ball[\s-]+findings\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +102,21 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
                 )
             )
             and not comment_is_clean_summary(reply)
-            and (comment_is_bot(reply) or comment_is_trusted_receipt(reply))
+            and (
+                comment_is_bot(reply)
+                or (
+                    comment_is_trusted_receipt(reply)
+                    and (
+                        ALL_FINDINGS_RECEIPT.search(reply.body) is not None
+                        or re.search(
+                            rf"\bcomment\s*(?:=\s*|\s+){comment.id}\b|#{comment.id}\b",
+                            reply.body,
+                            re.IGNORECASE,
+                        )
+                        is not None
+                    )
+                )
+            )
         ]
         last_reply = replies[-1] if replies else None
         last_reply_time = comment_effective_time(last_reply) if last_reply else None

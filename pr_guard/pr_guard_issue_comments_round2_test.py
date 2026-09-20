@@ -296,7 +296,7 @@ class FindingReceiptOrderingTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
-                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed.", "2026-09-20T10:02:00Z"),
+                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed comment=1.", "2026-09-20T10:02:00Z"),
             ]
         )
         self.assertEqual(findings[0].classification, "receipted")
@@ -307,7 +307,7 @@ class FindingReceiptOrderingTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
-                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed."),
+                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed comment=1."),
                 comment(3, "chatgpt-codex-connector", "2026-09-20T10:02:00Z", "### 💡 Codex Review\nDidn't find any major issues. Bravo.", author_type="Bot"),
             ]
         )
@@ -319,7 +319,7 @@ class FindingReceiptOrderingTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
-                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed."),
+                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed #1."),
                 comment(3, "chatgpt-codex-connector", "2026-09-20T10:02:00Z", "P2 Badge: still broken", author_type="Bot"),
             ]
         )
@@ -332,7 +332,7 @@ class FindingReceiptOrderingTests(unittest.TestCase):
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
                 comment(2, "chatgpt-codex-connector", "2026-09-20T10:01:00Z", "Still broken.", "2026-09-20T10:03:00Z", "Bot"),
-                comment(3, "RachaelsDen", "2026-09-20T10:03:00Z", "Fixed."),
+                comment(3, "RachaelsDen", "2026-09-20T10:03:00Z", "Fixed comment=1."),
             ]
         )
         self.assertEqual(findings[0].classification, "DANGER")
@@ -344,7 +344,7 @@ class FindingReceiptOrderingTests(unittest.TestCase):
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
                 comment(2, "chatgpt-codex-connector", "2026-09-20T10:01:00Z", "Still broken.", "2026-09-20T10:03:00Z", "Bot"),
-                comment(3, "RachaelsDen", "2026-09-20T10:04:00Z", "Fixed."),
+                comment(3, "RachaelsDen", "2026-09-20T10:04:00Z", "Fixed comment=1."),
             ]
         )
         self.assertEqual(findings[0].classification, "receipted")

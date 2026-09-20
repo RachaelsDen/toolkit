@@ -91,10 +91,46 @@ class FindingClassificationTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
-                comment(2, "RachaelsDen", "2026-09-19T10:01:00Z", "Fixed."),
+                comment(2, "RachaelsDen", "2026-09-19T10:01:00Z", "Fixed comment=1."),
             ]
         )
         self.assertEqual(findings[0].classification, "receipted")
+
+    def test_explicit_receipt_reference_clears_only_its_finding(self):
+        # Given: two findings and one receipt naming the first comment.
+        # When: classified. Then: only that finding is receipted.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+                comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P2 Badge"),
+                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Fixed comment=1."),
+            ]
+        )
+        self.assertEqual([item.classification for item in findings], ["receipted", "DANGER"])
+
+    def test_all_findings_receipt_clears_every_finding(self):
+        # Given: two findings and a trusted all-findings receipt.
+        # When: classified. Then: both findings are receipted.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+                comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P2 Badge"),
+                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Fixed all-findings."),
+            ]
+        )
+        self.assertEqual([item.classification for item in findings], ["receipted", "receipted"])
+
+    def test_neutral_trusted_reply_clears_no_findings(self):
+        # Given: two findings and a trusted reply with no receipt target.
+        # When: classified. Then: neither finding is receipted.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+                comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P2 Badge"),
+                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Fixed both."),
+            ]
+        )
+        self.assertEqual([item.classification for item in findings], ["DANGER", "DANGER"])
 
     def test_later_untrusted_comment_does_not_clear_finding(self):
         # Given: a bot finding followed by an outside human comment.
