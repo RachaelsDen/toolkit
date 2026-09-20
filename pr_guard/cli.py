@@ -53,10 +53,15 @@ MODES
       review bot (chatgpt-codex-connector[bot]) reacts ON the PR itself
       — THUMBS_UP = review COMPLETE + passed; EYES = review ACTIVELY in
       progress; none = not started/stale. The reaction is the DONE/
-      ACTIVE signal: this mode polls ONLY that cheap single-endpoint
-      read every 5s (be polite) until a terminal state or the timeout
-      (default 600s; --timeout-secs overrides), printing each state
-      change — REPLACING the orchestrator's blind sleep-poll loops.
+      ACTIVE signal: this mode first takes a bannerless thread-authority
+      snapshot, then polls that cheap single-endpoint read every 5s (be
+      polite) until a terminal state or the timeout (default 600s;
+      --timeout-secs overrides), printing each state change — REPLACING
+      the orchestrator's blind sleep-poll loops. A DANGER finding in
+      the preflight exits 3 immediately; a second bannerless authority
+      snapshot runs only after a reaction timeout and also exits 3 if
+      it finds DANGER. A clean snapshot is never a pass: exit 0 still
+      requires the reaction-evidence path (or --accept-standing).
       User-taught refinements #2 (vault note section 'User-taught
       refinements #2'): the bot REMOVES its EYES at round end — +1
       when it passed, NOTHING when it found feedback — so a
@@ -72,7 +77,8 @@ MODES
       and back, else timeout; thread 3867897766); 1 = timeout;
       2 = usage error (a failed read is never a done signal: it
       prints UNREADABLE and keeps polling under the deadline);
-      3 = findings (EYES → NONE confirmed). PROTOCOL BOUNDARY: the
+      3 = findings (pre-existing DANGER, DANGER at timeout, or EYES →
+      NONE confirmed). PROTOCOL BOUNDARY: the
       reaction NEVER authorizes a merge by itself — thread state
       (survey/pre-merge) remains the merge authority, and the
       post-merge quiet-period watch still guards the landed tree.
@@ -215,11 +221,18 @@ Exit codes: 0 ok/clean; 1 gate BLOCKED or resolve refusal; 2 usage/API error.
 """
 
 import shlex
+import subprocess
 import sys
+import time
 
 from .pr_guard_common import blocked_gh_host
 from .pr_guard_merge import DEFAULT_QUIET_SECS, merge_guarded
-from .pr_guard_reaction import DEFAULT_WAIT_TIMEOUT_SECS, wait_reaction
+from .pr_guard_reaction import (
+    DEFAULT_WAIT_TIMEOUT_SECS,
+    FINAL_SURVEY_BUDGET_SECS,
+    probe_timeout_budget,
+    wait_reaction,
+)
 from .pr_guard_repo import configure, repo_flag_value
 from .pr_guard_repo import parse_repo_slug, resolve_repo_target
 from .pr_guard_rulesets import default_branch, fetch_gate_rulesets, gate_covers
@@ -232,21 +245,24 @@ from .pr_guard_threads import (
     survey,
     unresolve_thread,
 )
+from .pr_guard_wait_authority import wait_with_thread_authority
 
 USAGE = (
     "usage: pr_guard.py {survey|harden|pre-merge|resolve} <pr-number>\n"
     "       pr_guard.py merge <pr-number> <head-sha> <base-branch> "
     "[--quiet-secs <n>]\n"
     "       pr_guard.py wait <pr-number> [--timeout-secs <n>] "
-    "[--accept-standing] — poll ONLY "
+    "[--accept-standing] — survey thread authority before polling "
     "the review-bot reaction (THUMBS_UP = done, EYES = active, none =\n"
     "       not started / findings-after-EYES); exits 0 on a THUMBS_UP "
     "the wait WATCHED the round reach (a +1 already present at\n"
     "       start must first transition away — EYES, marker-driven "
     "stale, or none — and back, else timeout; thread 3867897766),\n"
-    "       3 on EYES → NONE confirmed (review completed WITH "
-    "findings — survey the threads: fix + receipt + re-wait), 1 on\n"
-    "       timeout, 2 on usage. --accept-standing: the opt-in fast "
+    "       3 on pre-existing DANGER, DANGER at timeout, or EYES → NONE "
+    "confirmed (review completed WITH findings — survey the threads: "
+    "fix + receipt + re-wait), 1 on timeout after a clean final survey,\n"
+    "       2 on usage. A clean survey is not a pass: only reaction "
+    "evidence (or --accept-standing) exits 0. --accept-standing: the opt-in fast "
     "path for already-passed PRs — a standing DONE-classified\n"
     "       THUMBS_UP exits 0 immediately, bypassing the observation "
     "and review-evidence gates (the staleness classification\n"
@@ -529,9 +545,7 @@ def main(argv: list[str]) -> int:
         # dispatch threads the opt-in through; the flagless call
         # keeps its historic two-arg shape so the argv-contract pins
         # (pr_guard_reaction_test) stand byte-identical — zero repins.
-        if accept_standing:
-            return wait_reaction(pr, timeout_secs, True)
-        return wait_reaction(pr, timeout_secs)
+        return wait_with_thread_authority(pr, timeout_secs, accept_standing)
     if rest[1] == "survey":
         survey(pr)
         return 0

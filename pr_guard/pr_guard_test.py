@@ -997,6 +997,17 @@ accepts) and the flagless default path is pinned byte-identical (the
 argv strip works in either flag order; the flagless dispatch keeps
 its historic two-arg shape) (596 -> 603 tests).
 
+pr_guard_wait_thread_preflight_test (user request 2026-09-20): wait
+takes one bannerless thread-authority survey before reaction polling
+and, only after reaction timeout, one more before retaining exit 1.
+Pre-existing or timeout DANGER exits 3; a clean authority snapshot
+never authorizes exit 0, which stays reaction-evidence-only (or the
+explicit --accept-standing opt-in). The suite pins zero reaction
+probes on pre-existing findings, findings appearing during a timed-out
+wait, the clean timeout, the reaction pass bypassing the final survey,
+and bounded unreadable preflight/final authority reads (603 -> 609
+tests).
+
 Run: cd .omo/start-work && python3 -m unittest pr_guard_test -v
 No network: every suite is pure; nothing shells out to gh.
 """
@@ -1110,6 +1121,7 @@ _SUITES = (
     "pr_guard_reaction_round34_test",
     "pr_guard_reaction_round3_test",
     "pr_guard_wait_accept_standing_test",
+    "pr_guard_wait_thread_preflight_test",
     "pr_guard_reaction_round4_gate_test",
     "pr_guard_reaction_round4_test",
     "pr_guard_reaction_round5_test",
