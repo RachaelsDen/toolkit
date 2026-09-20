@@ -67,6 +67,16 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
 }}
 """
 
+COMMENTS_LAST_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      comments(last: 1) { nodes { databaseId updatedAt } }
+    }
+  }
+}
+"""
+
 RESOLVE_MUTATION = """
 mutation($threadId: ID!) {
   resolveReviewThread(input: {threadId: $threadId}) {
@@ -119,6 +129,20 @@ def gh_graphql(query: str, variables: dict) -> dict:
     return body["data"]
 
 
+def last_comment_key(pr: int) -> tuple[int, str] | None:
+    data = gh_graphql(
+        COMMENTS_LAST_QUERY,
+        {"owner": REPO_OWNER, "name": REPO_NAME, "number": pr},
+    )
+    root = (data.get("repository") or {}).get("pullRequest")
+    if root is None:
+        die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
+    nodes = root["comments"]["nodes"]
+    if not nodes:
+        return None
+    return nodes[-1]["databaseId"], nodes[-1]["updatedAt"]
+
+
 def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_issue_comments import IssueComment
 
@@ -128,7 +152,9 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     ccursor: str | None = None
     fetch_threads_page = True
     fetch_comments_page = True
+    page_count = 0
     while fetch_threads_page or fetch_comments_page:
+        page_count += 1
         data = gh_graphql(
             THREADS_QUERY,
             {
@@ -181,6 +207,12 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                 )
             fetch_comments_page = conn["pageInfo"]["hasNextPage"]
             ccursor = conn["pageInfo"]["endCursor"]
+    # The decision snapshot is the union; multi-page reads bracket it
+    # with this tail revalidation before returning it to a gate caller.
+    last = comments[-1] if comments else None
+    collected_last = (last.id, last.updated_at) if last else None
+    if page_count > 1 and last_comment_key(pr) != collected_last:
+        return fetch_threads(pr)
     return threads, comments
 
 

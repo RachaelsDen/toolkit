@@ -55,7 +55,7 @@ def login_is_bot(login: str | None) -> TypeGuard[str]:
 
 
 def comment_is_bot(comment: IssueComment) -> bool:
-    return comment.author_type == "Bot" or login_is_bot(comment.author)
+    return login_is_bot(comment.author)
 
 
 def comment_is_trusted_receipt(comment: IssueComment) -> bool:
@@ -63,27 +63,28 @@ def comment_is_trusted_receipt(comment: IssueComment) -> bool:
 
 
 def comment_key(comment: IssueComment) -> tuple[str, int]:
-    return comment.created_at, comment.id
-
-
-def finding_key(comment: IssueComment) -> tuple[str, int]:
-    return comment.updated_at or comment.created_at, comment.id
+    effective_at = comment.updated_at or comment.created_at
+    return effective_at, comment.id
 
 
 def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComment]:
     ordered = sorted(comments, key=comment_key)
     findings: list[FindingComment] = []
     for comment in ordered:
-        if (
-            comment.author is None
-            or not comment_is_bot(comment)
-            or FINDING_BADGE.search(comment.body) is None
-        ):
+        if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
             continue
+        finding_time = (comment.updated_at or comment.created_at)
+        finding_is_edited = finding_time != comment.created_at
         replies = [
             reply
             for reply in ordered
-            if comment_key(reply) > finding_key(comment)
+            if (
+                (reply.updated_at or reply.created_at) > finding_time
+                or (
+                    not finding_is_edited
+                    and comment_key(reply) > comment_key(comment)
+                )
+            )
             and (comment_is_bot(reply) or comment_is_trusted_receipt(reply))
         ]
         classification = (

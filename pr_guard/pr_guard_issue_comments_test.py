@@ -15,11 +15,13 @@ from . import pr_guard_issue_comments
 from . import pr_guard_threads
 
 
-def comment(comment_id, author, created_at, body):
+def comment(comment_id, author, created_at, body, author_type=None, updated_at=None):
     return pr_guard_issue_comments.IssueComment(
         id=comment_id,
         author=author,
+        author_type=author_type,
         created_at=created_at,
+        updated_at=updated_at,
         body=body,
     )
 
@@ -75,9 +77,9 @@ class FindingClassificationTests(unittest.TestCase):
         # only the two configured Codex identities become findings.
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
-                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
-                comment(2, "chatgpt-codex-connector[bot]", "2026-09-19T10:01:00Z", "P1 Badge"),
-                comment(3, "dependabot[bot]", "2026-09-19T10:02:00Z", "P1 Badge"),
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge", "Bot"),
+                comment(2, "chatgpt-codex-connector[bot]", "2026-09-19T10:01:00Z", "P1 Badge", "Bot"),
+                comment(3, "dependabot[bot]", "2026-09-19T10:02:00Z", "P1 Badge", "Bot"),
                 comment(4, None, "2026-09-19T10:03:00Z", "P1 Badge"),
             ]
         )

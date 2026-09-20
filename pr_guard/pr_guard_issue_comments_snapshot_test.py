@@ -77,6 +77,53 @@ class FindingReceiptTests(unittest.TestCase):
         )
         self.assertEqual(findings[0].classification, "receipted")
 
+    def test_same_second_receipt_after_edited_finding_remains_danger(self):
+        # Given: a finding edit and receipt with the same timestamp. When: classified.
+        # Then: the ambiguous receipt cannot clear the finding.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", "2026-09-20T10:02:00Z", "Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:02:00Z", "Fixed."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "DANGER")
+
+    def test_unconfigured_bot_follow_up_does_not_reopen_receipt(self):
+        # Given: a finding, receipt, then an unrelated Bot actor. When: classified.
+        # Then: only configured bot logins can reopen the finding.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed."),
+                comment(3, "dependabot[bot]", "2026-09-20T10:02:00Z", "Still broken.", author_type="Bot"),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "receipted")
+
+    def test_bot_follow_up_edited_after_receipt_reopens_finding(self):
+        # Given: a bot follow-up created before but edited after a receipt.
+        # When: classified. Then: its edit reopens the finding.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "chatgpt-codex-connector", "2026-09-20T10:01:00Z", "Still broken.", "2026-09-20T10:03:00Z", "Bot"),
+                comment(3, "RachaelsDen", "2026-09-20T10:02:00Z", "Fixed."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "DANGER")
+
+    def test_bot_follow_up_edited_before_receipt_keeps_receipt(self):
+        # Given: a bot follow-up edited before a later receipt. When: classified.
+        # Then: the later receipt stands.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "chatgpt-codex-connector", "2026-09-20T10:01:00Z", "Still broken.", "2026-09-20T10:02:00Z", "Bot"),
+                comment(3, "RachaelsDen", "2026-09-20T10:03:00Z", "Fixed."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "receipted")
+
 
 class CombinedSnapshotTests(unittest.TestCase):
     def test_fetches_threads_and_comments_from_one_graphql_response(self):
@@ -128,6 +175,13 @@ class CombinedSnapshotTests(unittest.TestCase):
                     }
                 }
             },
+            {
+                "repository": {
+                    "pullRequest": {
+                        "comments": {"nodes": []},
+                    }
+                }
+            },
         ]
 
         def fake_graphql(query, variables):
@@ -140,6 +194,53 @@ class CombinedSnapshotTests(unittest.TestCase):
         self.assertEqual(calls[1]["ccursor"], "comment-next")
         self.assertFalse(calls[1]["fetchThreads"])
         self.assertTrue(calls[1]["fetchComments"])
+
+    def test_revalidates_comments_after_threads_continue_past_them(self):
+        # Given: comments finish before a second thread page and a finding lands.
+        # When: the combined snapshot completes. Then: revalidation refetches it.
+        calls = []
+        responses = [
+            {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {"pageInfo": {"endCursor": "thread-next", "hasNextPage": True}, "nodes": []},
+                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}]},
+                    }
+                }
+            },
+            {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                    }
+                }
+            },
+            {
+                "repository": {
+                    "pullRequest": {
+                        "comments": {"nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
+                    }
+                }
+            },
+            {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "author": {"login": "chatgpt-codex-connector", "__typename": "Bot"}, "body": "P1 Badge", "createdAt": "2026-09-20T10:02:00Z", "updatedAt": "2026-09-20T10:02:00Z"}]},
+                    }
+                }
+            },
+        ]
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return responses.pop(0)
+
+        with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual([item.id for item in comments], [1, 2])
+        self.assertFalse(calls[1][1]["fetchComments"])
+        self.assertEqual(calls[2][0], pr_guard_threads.COMMENTS_LAST_QUERY)
 
 
 if __name__ == "__main__":
