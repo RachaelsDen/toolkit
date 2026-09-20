@@ -12,6 +12,7 @@ from unittest import mock
 
 from . import cli
 from . import pr_guard_issue_comments
+from . import pr_guard_reaction_banner
 from . import pr_guard_threads
 
 
@@ -181,6 +182,26 @@ class FindingClassificationTests(unittest.TestCase):
 
 
 class SurveyAndGateTests(unittest.TestCase):
+    def test_banner_names_issue_comment_findings_without_review_threads(self):
+        # Given: a DANGER issue comment and no review threads. When: surveyed.
+        # Then: the banner names issue-comment findings as authority.
+        out = io.StringIO()
+        finding = comment(
+            3,
+            "chatgpt-codex-connector",
+            "2026-09-20T10:00:00Z",
+            "P1 Badge",
+            "Bot",
+        )
+        with mock.patch.object(
+            pr_guard_threads, "fetch_threads", return_value=([], [finding])
+        ), mock.patch.object(
+            pr_guard_reaction_banner.pr_guard_reaction,
+            "bot_review_reaction",
+            return_value="ACTIVE",
+        ), redirect_stdout(out):
+            pr_guard_threads.survey(68)
+        self.assertIn("issue-comment findings comment=3 are the authority", out.getvalue())
     def test_gate_survey_fetches_one_combined_snapshot(self):
         # Given: a bannerless gate survey whose combined fetch records calls.
         # When: the survey runs. Then: it consumes one server snapshot.
