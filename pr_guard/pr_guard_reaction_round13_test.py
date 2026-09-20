@@ -239,16 +239,14 @@ class UnreadableHeadBracketTests(unittest.TestCase):
 
 class RequestBoundEyesTests(unittest.TestCase):
     def test_eyes_round_state_truth_table(self):
-        # Given: the EYES classification against the head push, the
-        # formal codex REQUEST (3869259813), and the transition
-        # floor (3869453944). When: eyes_round_state evaluates.
-        # Then: only a STRICTLY-greater created_at past EVERY bound
-        # reads EYES; a pre-request EYES is the prior round's
-        # leftover (EYES_STALE) exactly as a pre-head one is; an
-        # unreadable push stays EYES_UNVERIFIED.
+        # Given: the EYES classification against the head push, a
+        # later request, and the transition floor. When:
+        # eyes_round_state evaluates. Then: a post-head EYES remains
+        # active across a redundant request, while a pre-head EYES
+        # or a pre-transition EYES stays stale.
         for created, pushed, requested, floor, expected in (
-            ("2026-08-26T12:00:00Z", "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "", "EYES_STALE"),
-            ("2026-08-26T13:00:00Z", "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "", "EYES_STALE"),
+            ("2026-08-26T12:00:00Z", "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "", "EYES"),
+            ("2026-08-26T13:00:00Z", "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "", "EYES"),
             ("2026-08-26T13:30:00Z", "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "", "EYES"),
             (PRE_WALL_EYES, "2021-01-01T00:00:00Z", "", WALL_NOW_ISO, "EYES_STALE"),
             (POST_WALL_EYES, "2021-01-01T00:00:00Z", "", WALL_NOW_ISO, "EYES"),
@@ -262,15 +260,13 @@ class RequestBoundEyesTests(unittest.TestCase):
                 (created, pushed, requested, floor),
             )
 
-    def test_re_request_cannot_ride_old_eyes_to_exit_zero(self):
+    def test_pre_wait_re_request_keeps_push_started_eyes_active(self):
         # Given: codex RE-REQUESTED at 13:00 on an UNCHANGED head
         # (pushed 11:00) while the preceding round's EYES (12:00)
         # remains; the preceding job's delayed +1 (14:00) postdates
-        # the new request. When: wait polls 12s. Then: exit 1 — the
-        # old EYES reads EYES_STALE against the request boundary and
-        # arms nothing, so the +1 HOLDS; the pre-fix wait armed from
-        # the request-blind EYES and exited 0 at t=5 before the
-        # newly requested round ran (thread 3869259813).
+        # the new request. When: wait polls 12s. Then: the EYES stays
+        # active because it postdates the head; the +1 still holds
+        # because no folded review evidence proves completion.
         code, out = run_wait(
             [
                 [react("eyes", created="2026-08-26T12:00:00Z", rid=5)],
@@ -284,7 +280,7 @@ class RequestBoundEyesTests(unittest.TestCase):
             12,
         )
         self.assertEqual(code, 1)
-        self.assertIn("EYES (stale — predates the current round's boundary", out)
+        self.assertIn("EYES (review actively in progress", out)
         self.assertIn("HOLDING THUMBS_UP", out)
         self.assertNotIn("WAIT DONE", out)
 

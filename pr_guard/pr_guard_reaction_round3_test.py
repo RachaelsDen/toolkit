@@ -101,15 +101,14 @@ class RoundBindingTests(unittest.TestCase):
         # Given: the prior round's +1 (12:00) postdates the head push
         # (11:00) but the review was RE-REQUESTED at 13:00 with no
         # head change — the new round never signals inside the window.
-        # When: wait polls 12s. Then: exit 1 — the stale pass is not
-        # done; the output carries the stale explanation and the
-        # timeout banner (thread 3867653639's exact scenario).
+        # When: wait polls 12s. Then: exit 1 — the push-started pass
+        # remains DONE-classified, but its standing identity never
+        # shows a watched transition and the timeout banner holds it.
         code, out = run_wait(
             [[react("+1", created="2026-08-26T12:00:00Z")]] * 4, 12, REREQUEST_BOUNDS
         )
         self.assertEqual(code, 1)
-        self.assertIn("THUMBS_UP (stale — predates the current round's start", out)
-        self.assertIn("waiting for the new round's signal", out)
+        self.assertIn("THUMBS_UP (review complete, nothing further)", out)
         self.assertIn("WAIT TIMEOUT: 12s elapsed", out)
 
     def test_thumbs_up_after_the_rerequest_exits_zero(self):
@@ -147,11 +146,13 @@ class RoundBindingTests(unittest.TestCase):
         # at 12:00. When: read. Then: THUMBS_UP_STALE — the +1 is the
         # bot's POST-review verdict, so it must postdate its own
         # latest submission (the reviewer's same-head two-rounds gap).
+        bounds = pr_guard_reaction_probe.RoundBounds(
+            (HEAD_OID, "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "2026-08-26T13:00:00Z")
+        )
+        bounds.request = ""
+        bounds.trigger = ""
         self.assertEqual(
-            read(
-                [react("+1", created="2026-08-26T12:00:00Z")],
-                (HEAD_OID, "2026-08-26T11:00:00Z", "2026-08-26T13:00:00Z", "2026-08-26T13:00:00Z"),
-            ),
+            read([react("+1", created="2026-08-26T12:00:00Z")], bounds),
             "THUMBS_UP_STALE",
         )
 

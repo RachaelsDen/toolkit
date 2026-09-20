@@ -20,10 +20,10 @@ job's EYES both landing BETWEEN two five-second probes read the
 legitimate EYES as pre-observation and permanently demoted it — the
 passing +1 then only seeded a held baseline and an otherwise
 completed review timed out. Round 20 SUPERSEDES the floor with the
-REQUEST/TRIGGER's own createdAt (exactly the reading's standing
-round-13 binding): an EYES certifies iff it postdates the boundary
-event — the between-polls shape below now COMPLETES, while a
-PRE-boundary EYES still stales AT THE READING (the survivor). The
+REQUEST/TRIGGER's own createdAt (exactly the reading's former
+round-13 binding): an EYES certifies iff it postdates the current
+head's own bound; a post-head EYES remains active across a redundant
+boundary, while a PRE-head EYES still stales at the reading. The
 superseded round-19 pin lives in pr_guard_reaction_round19_test
 (the documented exact-hole repin).
 
@@ -324,19 +324,12 @@ class RequestBoundaryFloorTests(unittest.TestCase):
         self.assertEqual(out.count("ROUND RE-REQUESTED"), 1)
         self.assertIn("WAIT DONE: THUMBS_UP at 10s", out)
 
-    def test_pre_request_eyes_still_stales_at_the_reading(self):
-        # Given: the SURVIVING demotion — the same advance shape, but
-        # the EYES (22:13:21) PREDATES the advancing request R2
-        # (22:13:22): a pre-boundary leftover, not a between-polls
-        # startup. The +1 (22:13:24) lands at t=10. When: wait polls
-        # 10s. Then: exit 1 — the READING's round-13 binding (not the
-        # removed wait-side stamp) classifies the EYES EYES_STALE
-        # (created <= the boundary's createdAt): it arms nothing and
-        # re-opens no gate, so the +1 only seeds a held baseline and
-        # HOLDs to the timeout. Green on BOTH sides of the round-20
-        # change (the pre-fix floor demoted it identically) — the pin
-        # that round 20 RELAXED the floor to the boundary, not removed
-        # the demotion itself.
+    def test_pre_trigger_push_started_eyes_hold_at_exit_evidence(self):
+        # Given: the same advance shape, but the EYES (22:13:21)
+        # postdates the current head while predating R2. When: wait
+        # polls 10s. Then: it stays active, but the +1 holds because
+        # the completion evidence does not prove the post-trigger
+        # round; the request reset and boundary floor remain intact.
         code, out = run_wait(
             [
                 [],
@@ -351,7 +344,7 @@ class RequestBoundaryFloorTests(unittest.TestCase):
             10,
         )
         self.assertEqual(code, 1)
-        self.assertIn("EYES (stale — predates the current round's boundary", out)
+        self.assertIn("EYES (review actively in progress", out)
         self.assertIn("HOLDING THUMBS_UP", out)
         self.assertNotIn("WAIT DONE", out)
         self.assertIn("WAIT TIMEOUT: 10s elapsed", out)

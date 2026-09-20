@@ -1103,6 +1103,7 @@ _SUITES = (
     "pr_guard_reaction_round32_probe_test",
     "pr_guard_reaction_round32_test",
     "pr_guard_reaction_round33_test",
+    "pr_guard_reaction_round34_test",
     "pr_guard_reaction_round3_test",
     "pr_guard_wait_accept_standing_test",
     "pr_guard_reaction_round4_gate_test",
