@@ -81,7 +81,7 @@ def react(content, created="2026-08-26T12:31:00Z", rid=None):
     }
 
 
-def run_wait(reads, bounds, timeout_secs):
+def run_wait(reads, bounds, timeout_secs, review_stamp="2024-01-15T00:00:00Z"):
     """wait_reaction on the FakeClock with per-probe 4-tuple bounds.
 
     heads default to each probe's OWN bounds oid (a stable bracket);
@@ -113,7 +113,7 @@ def run_wait(reads, bounds, timeout_secs):
         # themselves are unchanged.
         bounds = pr_guard_reaction_probe.RoundBounds(probe.pop("bounds"))
         bounds.review_head = bounds[0]
-        bounds.review_stamp = "2024-01-15T00:00:00Z"
+        bounds.review_stamp = review_stamp
         return bounds
 
     out = io.StringIO()
@@ -190,6 +190,7 @@ class RequestAdvanceResetTests(unittest.TestCase):
                 (HEAD_A, "2026-08-01T00:00:00Z", "2026-08-01T00:05:00Z", "2026-08-01T00:05:00Z"),
             ],
             600,
+            review_stamp="2026-08-01T00:06:00Z",
         )
         self.assertEqual(code, 0)
         self.assertNotIn("ROUND RE-REQUESTED", out)

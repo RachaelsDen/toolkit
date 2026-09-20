@@ -67,6 +67,20 @@ def run_wait(reads, bounds, timeout_secs, review_head=HEAD_A, review_stamp=REVIE
 
 
 class MidFlightTriggerTests(unittest.TestCase):
+    def test_pre_wait_trigger_still_floors_a_pre_trigger_review(self):
+        # Given: an old push-started EYES predates a pre-wait trigger and its
+        # review predates that trigger. When: its later +1 arrives. Then: hold.
+        bounds = [(HEAD_A, PUSH, TRIGGER, TRIGGER)] * 3
+        code, output = run_wait(
+            [[react("eyes", EYES, 5)], [react("+1", PASS, 6)], [react("+1", PASS, 6)]],
+            bounds,
+            10,
+            review_stamp="2026-09-20T12:01:30Z",
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("HOLDING THUMBS_UP", output)
+        self.assertNotIn("WAIT DONE", output)
+
     def test_push_started_eyes_before_pre_wait_trigger_exits_findings(self):
         # Given: a push starts EYES at T0+7s, then orchestration posts
         # @codex review at T0+2m before this wait begins. When: the wait

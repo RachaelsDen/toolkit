@@ -956,15 +956,9 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
     request_seen = set()
     trigger_seen = set()
     # Thread 3872980765 (PR #49 round 22, P1): the BOUNDARY floor —
-    # the createdAt half of the latest boundary an ADVANCE observed
-    # (stamped in the advance block below, the transition floor's
-    # twin for the request/trigger stream). Post-advance completions
-    # must carry review evidence SUBMITTING past it: the preceding
-    # job's review that PREDATES the re-request cannot certify a +1
-    # the newly requested round would ride. Monotone (max) like the
-    # transition floor; '' (no advance ever observed) binds nothing —
-    # the first readable probe's boundary is the cold-start baseline,
-    # never a floor (the round-15 baseline rule).
+    # the createdAt half of the latest observed request/trigger boundary.
+    # Completion evidence must submit after it, including a pre-wait
+    # boundary whose EYES is accepted by the round-34 arm relaxation.
     boundary_floor = ""
     # Thread 3874769245 (PR #49 round 27, P1): the BASE twins of the
     # head stream's observed oid and the boundary floors — the wait
@@ -1304,6 +1298,12 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
             trigger_seen.add(trigger)
             if not readable_probe_seen or trigger_advanced:
                 trigger_high_water = trigger
+        if not readable_probe_seen:
+            boundary_floor = max(
+                boundary_floor,
+                request_high_water.partition("|")[0],
+                trigger_high_water.partition("|")[0],
+            )
         # Thread 3872194007 (round 20, P2): the seen-sets also record
         # every COLLECTED same-second identity (the walk's full-
         # identity stream) — a sibling visible beside the boundary
