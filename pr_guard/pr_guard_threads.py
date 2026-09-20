@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 from .pr_guard_classify import BOT_AUTHORS, CLASSES, Thread, classify
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
+from .pr_guard_reaction_boundaries import probe_timeout_budget
 # PR #49 round 11 (thread 3868979509's split): the banner lives in
 # the sibling banner module now (reaction.py hit the 250 pure-LOC
 # ceiling); imports still flow ONE way — threads FROM banner FROM
@@ -109,7 +111,9 @@ mutation($threadId: ID!) {
 """
 
 
-def gh_graphql(query: str, variables: dict) -> dict:
+def gh_graphql(
+    query: str, variables: dict, timeout_secs: float | None = None
+) -> dict:
     payload = json.dumps({"query": query, "variables": variables})
     proc = subprocess.run(
         ["gh", "api", "graphql", "--input", "-"],
@@ -117,6 +121,7 @@ def gh_graphql(query: str, variables: dict) -> dict:
         capture_output=True,
         text=True,
         env=gh_env(),
+        timeout=timeout_secs,
     )
     if proc.returncode != 0:
         die(f"gh api exited {proc.returncode}: {proc.stderr.strip()}")
@@ -126,12 +131,26 @@ def gh_graphql(query: str, variables: dict) -> dict:
     return body["data"]
 
 
-def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
+def fetch_threads(
+    pr: int, timeout_secs: float | None = None
+) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_issue_comments import IssueComment
     from .pr_guard_thread_snapshot import SNAPSHOT_ATTEMPTS, comment_identity, read_identity, thread_identity
 
+    deadline = None if timeout_secs is None else time.monotonic() + timeout_secs
+
+    def graphql(query: str, variables: dict) -> dict:
+        if deadline is None:
+            return gh_graphql(query, variables)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(
+                ["gh", "api", "graphql"], probe_timeout_budget(remaining)
+            )
+        return gh_graphql(query, variables, probe_timeout_budget(remaining))
+
     for _ in range(SNAPSHOT_ATTEMPTS):
-        initial_identity, _, _, _ = read_identity(pr, gh_graphql)
+        initial_identity, _, _, _ = read_identity(pr, graphql)
         threads: list[Thread] = []
         comments: list[IssueComment] = []
         held_threads: list[tuple] = []
@@ -141,7 +160,7 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
         fetch_threads_page = True
         fetch_comments_page = True
         while fetch_threads_page or fetch_comments_page:
-            data = gh_graphql(
+            data = graphql(
                 THREADS_QUERY,
                 {
                     "owner": REPO_OWNER,
@@ -195,7 +214,7 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                     )
                 fetch_comments_page = conn["pageInfo"]["hasNextPage"]
                 ccursor = conn["pageInfo"]["endCursor"]
-        current_identity, current_threads, current_comments, terminal_matches = read_identity(pr, gh_graphql, len(held_threads), len(held_comments))
+        current_identity, current_threads, current_comments, terminal_matches = read_identity(pr, graphql, len(held_threads), len(held_comments))
         # Thread 4057345626: this bracket includes classification inputs and body hashes,
         # closing the former same-second body-edit class with no classification-relevant residual.
         if (
@@ -216,12 +235,18 @@ def excerpt(body: str, limit: int = 72) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
+def survey(
+    pr: int, reaction: bool = True, timeout_secs: float | None = None
+) -> list[Thread | FindingComment]:
     from .pr_guard_issue_comments import classify_finding_comments, report
 
     # Thread 4055845768: both gate-bearing comment sources come from the
     # same GraphQL request before the caller consumes this survey.
-    threads, comments = fetch_threads(pr)
+    threads, comments = (
+        fetch_threads(pr)
+        if timeout_secs is None
+        else fetch_threads(pr, timeout_secs)
+    )
     finding_comments = classify_finding_comments(comments)
     for thread in threads:
         thread.classification = classify(thread)
