@@ -5,6 +5,7 @@ fetches, while the reaction wait is patched at the CLI boundary.
 """
 
 import io
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from unittest import mock
@@ -59,7 +60,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         # final bannerless survey reports findings with exit 3.
         events = []
 
-        def fetch_threads(pr):
+        def fetch_threads(pr, timeout_secs=None):
             events.append("survey")
             return (
                 ([thread("10", "resolved")], [])
@@ -118,8 +119,66 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ):
             code = cli.main(["pr_guard.py", "wait", "48"])
         self.assertEqual(code, 0)
-        fetch.assert_called_once_with(48)
+        fetch.assert_called_once_with(48, 10.0)
         banner.assert_not_called()
+
+    def test_preflight_subprocess_timeout_is_bounded(self):
+        # Given: the opening authority subprocess stalls. When: wait
+        # starts. Then: the preflight uses the capped budget, reports
+        # unreadable, and refuses before probing the reaction.
+        calls = []
+
+        def stalled_run(argv, **kwargs):
+            calls.append(kwargs["timeout"])
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        out = io.StringIO()
+        with mock.patch.object(
+            pr_guard_threads.subprocess, "run", side_effect=stalled_run
+        ), mock.patch.object(
+            cli, "wait_reaction"
+        ) as reaction_probe, redirect_stdout(out):
+            code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "12"])
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertGreaterEqual(calls[0], 1.0)
+        self.assertLessEqual(calls[0], 10.0)
+        reaction_probe.assert_not_called()
+        self.assertIn("WAIT UNREADABLE (preflight)", out.getvalue())
+
+    def test_timeout_survey_timeout_keeps_exit_one(self):
+        # Given: a clean preflight and an unreadable final authority
+        # read. When: the reaction wait times out. Then: the final
+        # survey gets the bounded remaining budget and preserves exit 1.
+        fetch_calls = []
+        subprocess_calls = []
+        real_fetch_threads = pr_guard_threads.fetch_threads
+
+        def preflight_then_stall(pr, timeout_secs=None):
+            fetch_calls.append(timeout_secs)
+            if len(fetch_calls) == 1:
+                return [thread("10", "resolved")], []
+            return real_fetch_threads(pr, timeout_secs)
+
+        def stalled_run(argv, **kwargs):
+            subprocess_calls.append(kwargs["timeout"])
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        out = io.StringIO()
+        with mock.patch.object(
+            pr_guard_threads, "fetch_threads", side_effect=preflight_then_stall
+        ), mock.patch.object(
+            pr_guard_threads.subprocess, "run", side_effect=stalled_run
+        ), mock.patch.object(
+            cli, "wait_reaction", return_value=1
+        ), redirect_stdout(out):
+            code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "12"])
+        self.assertEqual(code, 1)
+        self.assertEqual(fetch_calls, [10.0, 10.0])
+        self.assertEqual(len(subprocess_calls), 1)
+        self.assertGreaterEqual(subprocess_calls[0], 1.0)
+        self.assertLessEqual(subprocess_calls[0], 10.0)
+        self.assertIn("WAIT TIMEOUT: final survey UNREADABLE", out.getvalue())
 
 
 if __name__ == "__main__":

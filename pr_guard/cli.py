@@ -221,11 +221,17 @@ Exit codes: 0 ok/clean; 1 gate BLOCKED or resolve refusal; 2 usage/API error.
 """
 
 import shlex
+import subprocess
 import sys
+import time
 
 from .pr_guard_common import blocked_gh_host
 from .pr_guard_merge import DEFAULT_QUIET_SECS, merge_guarded
-from .pr_guard_reaction import DEFAULT_WAIT_TIMEOUT_SECS, wait_reaction
+from .pr_guard_reaction import (
+    DEFAULT_WAIT_TIMEOUT_SECS,
+    probe_timeout_budget,
+    wait_reaction,
+)
 from .pr_guard_repo import configure, repo_flag_value
 from .pr_guard_repo import parse_repo_slug, resolve_repo_target
 from .pr_guard_rulesets import default_branch, fetch_gate_rulesets, gate_covers
@@ -465,20 +471,38 @@ def resolve(pr: int) -> int:
 def wait_with_thread_authority(
     pr: int, timeout_secs: int, accept_standing: bool
 ) -> int:
-    preflight = survey(pr, reaction=False)
+    try:
+        preflight = survey(
+            pr, reaction=False, timeout_secs=probe_timeout_budget(timeout_secs)
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "WAIT UNREADABLE (preflight): thread-authority survey timed out; "
+            "no reaction probe was started"
+        )
+        return 1
     if any(t.classification == "DANGER" for t in preflight):
         print(
             "WAIT FINDINGS (pre-existing): unresolved findings at wait start "
             "— the review already ran; threads are the authority"
         )
         return 3
+    deadline = time.monotonic() + timeout_secs
     if accept_standing:
         result = wait_reaction(pr, timeout_secs, True)
     else:
         result = wait_reaction(pr, timeout_secs)
     if result != 1:
         return result
-    at_timeout = survey(pr, reaction=False)
+    try:
+        at_timeout = survey(
+            pr,
+            reaction=False,
+            timeout_secs=probe_timeout_budget(deadline - time.monotonic()),
+        )
+    except subprocess.TimeoutExpired:
+        print("WAIT TIMEOUT: final survey UNREADABLE; retaining exit 1")
+        return 1
     if any(t.classification == "DANGER" for t in at_timeout):
         print(
             "WAIT FINDINGS (at timeout): findings appeared during the wait; "

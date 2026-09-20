@@ -405,11 +405,14 @@ class WaitCliTests(unittest.TestCase):
             (["pr_guard.py", "wait", "48", "--timeout-secs", "10"], (48, 10)),
         ):
             with self.subTest(argv=argv):
-                with mock.patch.object(
+                with mock.patch.object(cli, "survey", return_value=[]) as authority, mock.patch.object(
                     cli, "wait_reaction", return_value=0
                 ) as fake:
                     self.assertEqual(cli.main(argv), 0)
                 fake.assert_called_once_with(*expected)
+                authority.assert_called_once_with(
+                    48, reaction=False, timeout_secs=10.0
+                )
 
 
 if __name__ == "__main__":
