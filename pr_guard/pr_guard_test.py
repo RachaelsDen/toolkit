@@ -1008,6 +1008,7 @@ from .pr_guard_repo import configure
 
 _SUITES = (
     "pr_guard_classify_test",
+    "pr_guard_issue_comments_test",
     "pr_guard_fnmatch_test",
     "pr_guard_fnmatch_hyphen_test",
     "pr_guard_fnmatch_reversed_test",
