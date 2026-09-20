@@ -95,7 +95,8 @@ def read_identity(
     graphql: Callable[[str, dict], dict],
     held_thread_count: int = 0,
     held_comment_count: int = 0,
-) -> tuple[MutationIdentity, set[tuple], set[tuple]]:
+    terminal_check: bool = True,
+) -> tuple[MutationIdentity, set[tuple], set[tuple], bool]:
     thread_cursor: str | None = None
     comment_cursor: str | None = None
     fetch_threads = held_thread_count > 0
@@ -103,6 +104,7 @@ def read_identity(
     current_threads: set[tuple] = set()
     current_comments: set[tuple] = set()
     identity: MutationIdentity | None = None
+    pages = 0
     while identity is None or fetch_threads or fetch_comments:
         data = graphql(
             IDENTITY_QUERY,
@@ -118,6 +120,7 @@ def read_identity(
                 "fetchComments": fetch_comments,
             },
         )
+        pages += 1
         root = (data.get("repository") or {}).get("pullRequest")
         if root is None:
             die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
@@ -147,4 +150,22 @@ def read_identity(
     final_identity = identity_from_root(root)
     if identity != final_identity:
         identity = final_identity
-    return identity, current_threads, current_comments
+    terminal_matches = True
+    if terminal_check and pages > 1:
+        # Thread 4057392888: TERMINAL invariant: a paginated validation walk accepts
+        # only when its immediately adjacent full-identity read agrees. The accepted
+        # floor is an edit landing between two adjacent reads that both return
+        # byte-identical bodies and timestamps, below GitHub's observable resolution.
+        terminal_identity, terminal_threads, terminal_comments, _ = read_identity(
+            pr,
+            graphql,
+            held_thread_count,
+            held_comment_count,
+            terminal_check=False,
+        )
+        terminal_matches = (identity, current_threads, current_comments) == (
+            terminal_identity,
+            terminal_threads,
+            terminal_comments,
+        )
+    return identity, current_threads, current_comments, terminal_matches

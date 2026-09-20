@@ -131,7 +131,7 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_thread_snapshot import SNAPSHOT_ATTEMPTS, comment_identity, read_identity, thread_identity
 
     for _ in range(SNAPSHOT_ATTEMPTS):
-        initial_identity, _, _ = read_identity(pr, gh_graphql)
+        initial_identity, _, _, _ = read_identity(pr, gh_graphql)
         threads: list[Thread] = []
         comments: list[IssueComment] = []
         held_threads: list[tuple] = []
@@ -195,13 +195,14 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                     )
                 fetch_comments_page = conn["pageInfo"]["hasNextPage"]
                 ccursor = conn["pageInfo"]["endCursor"]
-        current_identity, current_threads, current_comments = read_identity(pr, gh_graphql, len(held_threads), len(held_comments))
+        current_identity, current_threads, current_comments, terminal_matches = read_identity(pr, gh_graphql, len(held_threads), len(held_comments))
         # Thread 4057345626: this bracket includes classification inputs and body hashes,
         # closing the former same-second body-edit class with no classification-relevant residual.
         if (
             initial_identity == current_identity
             and set(held_threads) == current_threads
             and set(held_comments) == current_comments
+            and terminal_matches
         ):
             return threads, comments
     die(
