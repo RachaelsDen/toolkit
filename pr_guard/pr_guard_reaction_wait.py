@@ -580,7 +580,7 @@ FINDINGS_GRACE_PROBES = 3
 
 
 def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> int:
-    """The `wait` mode: poll ONLY the reaction until THUMBS_UP/timeout.
+    """The reaction half of `wait`: poll until THUMBS_UP/timeout.
 
     First probe immediate, then every WAIT_INTERVAL_SECS (5s, polite)
     with the deadline-clamped sleep discipline (the quiet-watch
@@ -681,7 +681,11 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
     the wait keeps polling to timeout as before. Exit codes: 0 on
     the transitioned (or observed-replaced) THUMBS_UP, 1 on
     timeout, 3 on the confirmed findings transition (2 stays the CLI
-    usage error) — the reaction is the DONE/ACTIVE signal ONLY:
+    usage error). The CLI wrapper takes bannerless thread-authority
+    snapshots before this first probe and after this function returns
+    timeout: DANGER is sufficient for exit 3, but the absence of
+    DANGER is never sufficient for exit 0 — only this reaction-evidence
+    path (or --accept-standing) passes. The reaction is the DONE/ACTIVE signal ONLY:
     thread state remains the merge authority and the post-merge
     quiet-period watch still guards the landed tree.
 
