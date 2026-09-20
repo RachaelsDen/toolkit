@@ -2,6 +2,10 @@
 
 user-observed 2026-09-19: first codex finding posted as an issue comment,
 invisible to reviewThreads.
+
+An all-findings receipt must contain the explicit ``receipt:all findings``
+or ``receipt-all-findings`` token (case-insensitive; the space after ``:``
+is optional).
 """
 
 import re
@@ -23,7 +27,9 @@ __all__ = [
 FINDING_BADGE = re.compile(
     r"\bP[012]\s+Badge\b|^\s*\*\*<sub>.*?\bBadge\b", re.DOTALL
 )
-ALL_FINDINGS_RECEIPT = re.compile(r"\ball[\s-]+findings\b", re.IGNORECASE)
+ALL_FINDINGS_RECEIPT = re.compile(
+    r"\breceipt(?::\s*all\s+findings|-all-findings)\b", re.IGNORECASE
+)
 
 
 @dataclass(frozen=True, slots=True)

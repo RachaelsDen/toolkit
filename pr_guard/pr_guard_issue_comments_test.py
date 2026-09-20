@@ -109,16 +109,28 @@ class FindingClassificationTests(unittest.TestCase):
         self.assertEqual([item.classification for item in findings], ["receipted", "DANGER"])
 
     def test_all_findings_receipt_clears_every_finding(self):
-        # Given: two findings and a trusted all-findings receipt.
+        # Given: two findings and a trusted explicit all-findings receipt.
         # When: classified. Then: both findings are receipted.
         findings = pr_guard_issue_comments.classify_finding_comments(
             [
                 comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
                 comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P2 Badge"),
-                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Fixed all-findings."),
+                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Fixed. receipt:all findings"),
             ]
         )
         self.assertEqual([item.classification for item in findings], ["receipted", "receipted"])
+
+    def test_negated_all_findings_prose_does_not_receipt_findings(self):
+        # Given: two findings and a trusted comment that negates completion.
+        # When: classified. Then: both findings remain DANGER.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+                comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P2 Badge"),
+                comment(3, "RachaelsDen", "2026-09-19T10:02:00Z", "Not all findings are fixed yet."),
+            ]
+        )
+        self.assertEqual([item.classification for item in findings], ["DANGER", "DANGER"])
 
     def test_neutral_trusted_reply_clears_no_findings(self):
         # Given: two findings and a trusted reply with no receipt target.
