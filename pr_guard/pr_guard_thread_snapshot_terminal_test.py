@@ -119,6 +119,24 @@ class TerminalSnapshotTests(unittest.TestCase):
         self.assertEqual(len(comments), 101)
         self.assertEqual(len(calls), 7)
 
+    def test_same_second_post_page_edit_during_scan_two_accepts_as_accepted_floor(self):
+        # Thread 4057586398: a same-second edit landing after the second scan's last page-read
+        # leaves both scans with identical pre-edit content — the adjacent reads agree and
+        # accept stale as the theoretical floor.
+        # Given: an edit landing after scan two's page-read. When: both scans read pre-edit data.
+        # Then: the adjacent reads compare equal and accept as the theoretical floor pin.
+        responses = iter(paginated_attempt("stable"))
+        calls = []
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return next(responses)
+
+        with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual(len(comments), 101)
+        self.assertEqual(len(calls), 7)
+
     def test_changing_fixed_point_fails_closed_after_snapshot_attempts_exhaust(self):
         # Given: every adjacent complete identity pair differs. When: fetched.
         # Then: the bounded snapshot retries fail closed instead of accepting a mixed walk.

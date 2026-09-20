@@ -104,6 +104,15 @@ def read_identity(
 
     # Thread 4057516517: the terminal invariant is a fixed point — two adjacent
     # complete identity reads that agree; self-validating walks regress forever.
+    # Thread 4057586398: this is the theoretical floor of a token-less API — a
+    # same-second edit landing after the second scan's page-read of the affected
+    # node leaves both scans with the old body hash, so they compare equal and
+    # the snapshot accepts stale. The guarantee the loop gives is that the returned
+    # snapshot reflects a state that held at some instant spanned by the two
+    # agreeing scans; an edit landing after the final scan's last read of a node is
+    # outside any client protocol's detection without a server version token, and is
+    # backstopped by the post-merge quiet watch + server rulesets (the tool's
+    # standing residue posture).
     for _ in range(SNAPSHOT_ATTEMPTS):
         successor = _read_identity_once(
             pr, graphql, held_thread_count, held_comment_count
