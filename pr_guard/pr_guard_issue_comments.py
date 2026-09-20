@@ -62,9 +62,23 @@ def comment_is_trusted_receipt(comment: IssueComment) -> bool:
     return comment.author in RECEIPT_AUTHORS and not comment_is_bot(comment)
 
 
+def comment_effective_time(comment: IssueComment) -> str:
+    return (comment.updated_at or comment.created_at) if comment_is_bot(comment) else comment.created_at
+
+
 def comment_key(comment: IssueComment) -> tuple[str, int]:
-    effective_at = comment.updated_at or comment.created_at
-    return effective_at, comment.id
+    return comment_effective_time(comment), comment.id
+
+
+def comment_is_clean_summary(comment: IssueComment) -> bool:
+    return (
+        comment_is_bot(comment)
+        and FINDING_BADGE.search(comment.body) is None
+        and (
+            "Didn't find any major issues" in comment.body
+            or "### 💡 Codex Review" in comment.body
+        )
+    )
 
 
 def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComment]:
@@ -73,23 +87,36 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
     for comment in ordered:
         if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
             continue
-        finding_time = (comment.updated_at or comment.created_at)
+        finding_time = comment_effective_time(comment)
         finding_is_edited = finding_time != comment.created_at
         replies = [
             reply
             for reply in ordered
             if (
-                (reply.updated_at or reply.created_at) > finding_time
+                comment_effective_time(reply) > finding_time
                 or (
                     not finding_is_edited
-                    and comment_key(reply) > comment_key(comment)
+                    and comment_effective_time(reply) == finding_time
+                    and reply.id > comment.id
                 )
             )
+            and not comment_is_clean_summary(reply)
             and (comment_is_bot(reply) or comment_is_trusted_receipt(reply))
         ]
+        last_reply = replies[-1] if replies else None
+        last_reply_time = comment_effective_time(last_reply) if last_reply else None
+        equal_time_edited_bot_reply = any(
+            comment_is_bot(reply)
+            and reply.updated_at is not None
+            and reply.updated_at != reply.created_at
+            and comment_effective_time(reply) == last_reply_time
+            for reply in replies
+        )
         classification = (
             "receipted"
-            if replies and comment_is_trusted_receipt(replies[-1])
+            if last_reply is not None
+            and comment_is_trusted_receipt(last_reply)
+            and not equal_time_edited_bot_reply
             else "DANGER"
         )
         findings.append(
