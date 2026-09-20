@@ -12,6 +12,7 @@ from .pr_guard_common import RECEIPT_AUTHORS
 BOT_AUTHORS = frozenset(
     {"chatgpt-codex-connector", "github-actions[bot]", "renovate[bot]"}
 )
+REVIEW_BOT_AUTHORS = frozenset({"chatgpt-codex-connector"})
 CLASSES = ("resolved", "receipted", "DANGER")
 
 

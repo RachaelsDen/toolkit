@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import TypeGuard
 
-from .pr_guard_classify import BOT_AUTHORS
+from .pr_guard_classify import REVIEW_BOT_AUTHORS
 from .pr_guard_common import RECEIPT_AUTHORS
 from .pr_guard_threads import excerpt
 
@@ -57,7 +57,8 @@ class FindingComment:
 
 def login_is_bot(login: str | None) -> TypeGuard[str]:
     return login is not None and (
-        login in BOT_AUTHORS or login.removesuffix("[bot]") in BOT_AUTHORS
+        login in REVIEW_BOT_AUTHORS
+        or login.removesuffix("[bot]") in REVIEW_BOT_AUTHORS
     )
 
 
