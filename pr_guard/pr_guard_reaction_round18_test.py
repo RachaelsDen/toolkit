@@ -371,7 +371,7 @@ class PerKindBoundaryTests(unittest.TestCase):
 
     def test_same_second_pair_stales_the_preceding_eyes(self):
         # Given: the classification composition — an EYES created
-        # BEFORE the shared second (2026-08-01T00:01) under a page
+        # BEFORE the current head (2026-07-31T00:01) under a page
         # carrying BOTH kinds at that second (request Zm9v + trigger
         # IC_2), so the merged classification boundary (max of the two
         # createdAt halves, round 17's latest_boundary) postdates it.
@@ -388,7 +388,7 @@ class PerKindBoundaryTests(unittest.TestCase):
             trigger=[trigger_node(SECOND, "IC_2")],
         )
         with mock.patch.object(
-            pr_guard_reaction, "gh_reactions", return_value=[react("eyes", created="2026-08-01T00:01:00Z", rid=3)]
+            pr_guard_reaction, "gh_reactions", return_value=[react("eyes", created="2026-07-31T00:01:00Z", rid=3)]
         ), mock.patch.object(
             pr_guard_reaction, "head_ref_oid", return_value=HEAD_B
         ), mock.patch.object(

@@ -75,18 +75,10 @@ newer marker is the round's OWN engagement, not a supersession —
 the +1 completion keeps the full both-facts binding.
 
 ROUND 13 (threads 3869259813 P1 / 3869453944 P1 / 3869453955 P1):
-the EYES's bound set widens by two REQUEST-class facts the push
-comparison missed, and the replacement predicate gains ordering.
-(1) The FORMAL codex request marker (a ReviewRequestedEvent —
-round_bounds returns it SEPARATELY from the composite marker
-since round 13): a re-request on an UNCHANGED head leaves the
-preceding round's EYES standing, and the preceding job's delayed
-+1 postdates the new request — an accepted EYES must now postdate
-the request too (strictly; equality carries the round-10
-ambiguity). A request PRECEDES its round's EYES by nature, so
-request-less rounds keep a '' request that binds nothing — the
-round-11 asymmetry stands (post-EYES thread-comment markers NEVER
-bind the EYES; they stay composite-only, binding the +1). (2) The
+the request/trigger boundary resets the wait and its completion
+evidence floor guards the later verdict. A push-started EYES stays
+current-head activity across a redundant request; post-EYES
+thread-comment markers never bind EYES, but still bind +1. (2) The
 TRANSITION floor (3869453944): a retarget/force-push onto an
 already-pushed commit carries a pushedDate PREDATING the old
 head's EYES, so the push comparison alone re-classifies the old
@@ -227,17 +219,13 @@ UNVERIFIED_RENDER = (
 # renders — its own explanation beside the +1's stale render,
 # because its evidence is a round-boundary fact (a prior round's
 # leftover activity under a newer round boundary) and it arms
-# nothing. Round 13 (threads 3869259813/3869453944): the boundary
-# widened past the head push to the codex re-request and the
-# observed mid-wait head transition — the render names the boundary
-# CLASS, not just the push. Round 19 (thread 3871844565) briefly
-# listed the request-advance observation transition; round 20
-# (thread 3872194017) SUPERSEDED that floor with the boundary
-# event's own createdAt (the reading's round-13 binding), so the
-# list names the surviving boundaries.
+# nothing. A later request/trigger does not stale an EYES that
+# already postdates the current head; the wait's reset and exit
+# evidence own that race. The observed head-transition floor remains
+# a separate stale boundary.
 EYES_STALE_RENDER = (
     "EYES (stale — predates the current round's boundary (head "
-    "push, codex re-request, or an observed head-move transition); "
+    "push or an observed head-move transition); "
     "a prior round's leftover activity, so it arms nothing — the "
     "poll waits for the new round's signal)"
 )
@@ -291,15 +279,19 @@ def render_state(state: str, content: str = "") -> str:
     return f"{state} (reaction unreadable — the poll continues)"
 
 
-def thumbs_up_round_state(created: str, pushed: str, requested: str) -> str:
+def thumbs_up_round_state(
+    created: str, pushed: str, requested: str, boundary: str = ""
+) -> str:
     """Classify a +1 against the round's start facts (round_bounds).
 
-    DONE only when created STRICTLY postdates BOTH facts (thread
-    3868782042, round 10, P1: a created_at EQUAL to a round fact's
-    timestamp is AMBIGUOUS — same-second API writes carry no
-    provable order, so equality reads STALE, never done).
-    STALE when a READABLE fact certifies it predates the round —
-    or fails to order it AFTER the round (equality included).
+    DONE only when created STRICTLY postdates the current head's own
+    bound (thread 3868782042, round 10, P1: equality is AMBIGUOUS,
+    so it reads STALE, never done). A later request/trigger does not
+    stale a post-head +1 from a push-started round when it is the
+    sole marker; post-review engagement markers remain binding.
+    STALE when the READABLE head or engagement marker certifies it
+    predates the current head (or fails to order after it, equality
+    included).
     UNVERIFIED when the bounds are unreadable ('' pushed — a failed
     round_bounds probe): never done, never stale, never
     latch-arming (thread 3868047719).
@@ -311,7 +303,9 @@ def thumbs_up_round_state(created: str, pushed: str, requested: str) -> str:
     # push or the marker cannot be proven to postdate it, so the
     # ambiguous second reads STALE (conservative, never done); only
     # a strictly-greater created_at classifies DONE.
-    if created <= pushed or (requested and created <= requested):
+    if created <= pushed:
+        return REACTION_STALE
+    if requested and created <= requested and (not boundary or requested != boundary):
         return REACTION_STALE
     return REACTION_DONE
 
@@ -349,9 +343,9 @@ def eyes_round_state(
     """EYES | EYES_STALE | EYES_UNVERIFIED against the round bounds.
 
     EYES_STALE: the EYES predates (or shares a second with) the
-    head push, the formal codex request, or the observed head
-    transition — a prior round's leftover under a newer round
-    boundary; it never arms the transition latch (a stale
+    head's own bound or the observed head transition — a prior
+    round's leftover under a newer round boundary; it never arms the
+    transition latch (a stale
     THUMBS_UP PROVES a moved round — stale then done is the
     transition the wait exits 0 on — but a stale EYES proves only
     that an old round was active, and the old round's late
@@ -365,8 +359,12 @@ def eyes_round_state(
         return REACTION_EYES_UNVERIFIED
     if created <= pushed:
         return REACTION_EYES_STALE
-    if requested and created <= requested:
-        return REACTION_EYES_STALE
+    # 2026-09-20 session evidence (toolkit PR #9 rounds 3-6): a
+    # push-started review can post EYES before orchestration's
+    # mid-flight @codex review trigger. Round 20's boundary rule still
+    # stales EYES that predates the HEAD; only the post-head-bound,
+    # pre-trigger window stays current-head activity. The wait resets
+    # on that trigger and its exit evidence guards the completion.
     if transition_floor and created <= transition_floor:
         return REACTION_EYES_STALE
     return REACTION_ACTIVE

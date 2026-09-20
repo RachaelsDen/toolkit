@@ -38,6 +38,7 @@ from . import cli
 from . import pr_guard_common
 from . import pr_guard_reaction
 from . import pr_guard_reaction_probe
+from . import pr_guard_wait_authority
 from .pr_guard_merge_fixtures import FakeClock
 
 HEAD_B = "c05574000000000000000000000000000000b"
@@ -127,6 +128,26 @@ class AcceptStandingTests(unittest.TestCase):
         self.assertNotIn("ACCEPTED STANDING", out)
         self.assertIn("WAIT TIMEOUT: 10s elapsed", out)
 
+    def test_standing_done_before_newest_request_with_flag_holds(self):
+        # Given: a +1 at 12:01 after the head push, followed by a
+        # newer 12:02 request boundary. When: --accept-standing polls.
+        # Then: it holds because the pass predates the known request.
+        code, out = run_wait(
+            [[react("+1", "2026-08-26T12:01:00Z", 1)]] * 3,
+            review_head=HEAD_B,
+            timeout_secs=10,
+            bounds=(
+                HEAD_B,
+                "2026-08-26T12:00:00Z",
+                "2026-08-26T12:02:00Z|IC_1",
+                "2026-08-26T12:02:00Z",
+            ),
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("HOLDING THUMBS_UP", out)
+        self.assertNotIn("ACCEPTED STANDING", out)
+        self.assertIn("WAIT TIMEOUT: 10s elapsed", out)
+
     def test_standing_done_plus_one_without_flag_holds_to_timeout(self):
         # Given: the same standing DONE-classified +1, flag ABSENT.
         # When: wait polls 10s. Then: exit 1 — the round-5 initial-hold
@@ -206,17 +227,29 @@ class AcceptStandingArgvTests(unittest.TestCase):
             ),
         ):
             with self.subTest(argv=argv):
-                with mock.patch.object(cli, "wait_reaction", return_value=0) as fake:
+                with mock.patch.object(
+                    pr_guard_wait_authority, "survey", return_value=[]
+                ) as authority, mock.patch.object(
+                    pr_guard_wait_authority, "wait_reaction", return_value=0
+                ) as fake:
                     self.assertEqual(cli.main(argv), 0)
                 fake.assert_called_once_with(*expected)
+                authority.assert_called_once_with(
+                    48, reaction=False, timeout_secs=10.0
+                )
 
     def test_wait_argv_without_flag_dispatches_two_args(self):
         # Given: flagless wait argv. When: main dispatches. Then: the
         # call is the historic two-arg (pr, timeout) shape — the
         # default path is byte-identical (zero repins).
-        with mock.patch.object(cli, "wait_reaction", return_value=0) as fake:
+        with mock.patch.object(
+            pr_guard_wait_authority, "survey", return_value=[]
+        ) as authority, mock.patch.object(
+            pr_guard_wait_authority, "wait_reaction", return_value=0
+        ) as fake:
             self.assertEqual(cli.main(["pr_guard.py", "wait", "48"]), 0)
         fake.assert_called_once_with(48, 600)
+        authority.assert_called_once_with(48, reaction=False, timeout_secs=10.0)
 
 
 if __name__ == "__main__":

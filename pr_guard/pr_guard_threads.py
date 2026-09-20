@@ -13,23 +13,34 @@ summary — the review bot's PR reaction is the DONE/ACTIVE signal
 fails OPEN so an unreadable reaction can never block the gate.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
+import time
+from typing import TYPE_CHECKING
 
 from .pr_guard_classify import BOT_AUTHORS, CLASSES, Thread, classify
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
+from .pr_guard_fetch_budget import bounded_graphql, gh_graphql
+from .pr_guard_reaction_boundaries import probe_timeout_budget
 # PR #49 round 11 (thread 3868979509's split): the banner lives in
 # the sibling banner module now (reaction.py hit the 250 pure-LOC
 # ceiling); imports still flow ONE way — threads FROM banner FROM
 # reaction/latch.
 from .pr_guard_reaction_banner import reaction_banner
 
+if TYPE_CHECKING:
+    from .pr_guard_issue_comments import FindingComment, IssueComment
+
 __all__ = [
     "BOT_AUTHORS",
     "CLASSES",
     "Thread",
+    "bounded_graphql",
     "classify",
     "fetch_threads",
+    "gh_graphql",
     "refetch_thread",
     "resolve_thread",
     "survey",
@@ -39,19 +50,30 @@ __all__ = [
 PAGE_SIZE = 100
 
 THREADS_QUERY = f"""
-query($owner: String!, $name: String!, $number: Int!, $cursor: String) {{
+query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor: String, $fetchThreads: Boolean!, $fetchComments: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     pullRequest(number: $number) {{
-      reviewThreads(first: {PAGE_SIZE}, after: $cursor) {{
+      updatedAt
+      reviewThreads(first: {PAGE_SIZE}, after: $cursor) @include(if: $fetchThreads) {{
+        totalCount
         pageInfo {{ endCursor hasNextPage }}
         nodes {{
           id
           isResolved
           isOutdated
           head: comments(first: 1) {{ nodes {{ databaseId }} }}
-          last: comments(last: 1) {{ nodes {{ databaseId author {{ login __typename }} body }} }}
+          last: comments(last: 1) {{ nodes {{ databaseId updatedAt author {{ login __typename }} body }} }}
         }}
       }}
+      comments(first: {PAGE_SIZE}, after: $ccursor) @include(if: $fetchComments) {{
+        totalCount
+        pageInfo {{ endCursor hasNextPage }}
+        nodes {{ databaseId author {{ login __typename }} body createdAt updatedAt }}
+      }}
+      lastThread: reviewThreads(last: 1) {{
+        nodes {{ id isResolved isOutdated last: comments(last: 1) {{ nodes {{ databaseId author {{ login __typename }} body }} }} }}
+      }}
+      lastComment: comments(last: 1) {{ nodes {{ databaseId }} }}
     }}
   }}
 }}
@@ -92,60 +114,96 @@ mutation($threadId: ID!) {
 """
 
 
-def gh_graphql(query: str, variables: dict) -> dict:
-    payload = json.dumps({"query": query, "variables": variables})
-    proc = subprocess.run(
-        ["gh", "api", "graphql", "--input", "-"],
-        input=payload,
-        capture_output=True,
-        text=True,
-        env=gh_env(),
-    )
-    if proc.returncode != 0:
-        die(f"gh api exited {proc.returncode}: {proc.stderr.strip()}")
-    body = json.loads(proc.stdout)
-    if body.get("errors"):
-        die(f"GraphQL errors: {json.dumps(body['errors'])}")
-    return body["data"]
+def fetch_threads(
+    pr: int, timeout_secs: float | None = None
+) -> tuple[list[Thread], list[IssueComment]]:
+    from .pr_guard_issue_comments import IssueComment
+    from .pr_guard_thread_snapshot import SNAPSHOT_ATTEMPTS, comment_identity, read_identity, thread_identity
 
+    deadline = None if timeout_secs is None else time.monotonic() + timeout_secs
 
-def fetch_threads(pr: int) -> list[Thread]:
-    threads: list[Thread] = []
-    cursor: str | None = None
-    while True:
-        data = gh_graphql(
-            THREADS_QUERY,
-            {
-                "owner": REPO_OWNER,
-                "name": REPO_NAME,
-                "number": pr,
-                "cursor": cursor,
-            },
-        )
-        root = (data.get("repository") or {}).get("pullRequest")
-        if root is None:
-            die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-        conn = root["reviewThreads"]
-        for node in conn["nodes"]:
-            head = node["head"]["nodes"]
-            last = node["last"]["nodes"]
-            last_comment = last[-1] if last else {}
-            author = last_comment.get("author") or {}
-            threads.append(
-                Thread(
-                    node_id=node["id"],
-                    head_id=head[0]["databaseId"] if head else None,
-                    last_id=last_comment.get("databaseId"),
-                    last_author=author.get("login"),
-                    last_author_type=author.get("__typename"),
-                    last_body=last_comment.get("body") or "",
-                    is_resolved=node["isResolved"],
-                    is_outdated=node["isOutdated"],
-                )
+    def graphql(query: str, variables: dict) -> dict:
+        return bounded_graphql(query, variables, deadline, fetch_fn=gh_graphql)
+
+    for _ in range(SNAPSHOT_ATTEMPTS):
+        initial_identity, _, _, _ = read_identity(pr, graphql)
+        threads: list[Thread] = []
+        comments: list[IssueComment] = []
+        held_threads: list[tuple] = []
+        held_comments: list[tuple] = []
+        cursor: str | None = None
+        ccursor: str | None = None
+        fetch_threads_page = True
+        fetch_comments_page = True
+        while fetch_threads_page or fetch_comments_page:
+            data = graphql(
+                THREADS_QUERY,
+                {
+                    "owner": REPO_OWNER,
+                    "name": REPO_NAME,
+                    "number": pr,
+                    "cursor": cursor,
+                    "ccursor": ccursor,
+                    "fetchThreads": fetch_threads_page,
+                    "fetchComments": fetch_comments_page,
+                },
             )
-        if not conn["pageInfo"]["hasNextPage"]:
-            return threads
-        cursor = conn["pageInfo"]["endCursor"]
+            root = (data.get("repository") or {}).get("pullRequest")
+            if root is None:
+                die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
+            if fetch_threads_page:
+                conn = root["reviewThreads"]
+                for node in conn["nodes"]:
+                    held_threads.append(thread_identity(node))
+                    head = node["head"]["nodes"]
+                    last = node["last"]["nodes"]
+                    last_comment = last[-1] if last else {}
+                    author = last_comment.get("author") or {}
+                    threads.append(
+                        Thread(
+                            node_id=node["id"],
+                            head_id=head[0]["databaseId"] if head else None,
+                            last_id=last_comment.get("databaseId"),
+                            last_author=author.get("login"),
+                            last_author_type=author.get("__typename"),
+                            last_body=last_comment.get("body") or "",
+                            is_resolved=node["isResolved"],
+                            is_outdated=node["isOutdated"],
+                        )
+                    )
+                fetch_threads_page = conn["pageInfo"]["hasNextPage"]
+                cursor = conn["pageInfo"]["endCursor"]
+            if fetch_comments_page:
+                conn = root["comments"]
+                for node in conn["nodes"]:
+                    held_comments.append(comment_identity(node))
+                    author = node.get("author") or {}
+                    comments.append(
+                        IssueComment(
+                            id=node["databaseId"],
+                            author=author.get("login"),
+                            author_type=author.get("__typename"),
+                            created_at=node["createdAt"],
+                            updated_at=node["updatedAt"],
+                            body=node["body"],
+                        )
+                    )
+                fetch_comments_page = conn["pageInfo"]["hasNextPage"]
+                ccursor = conn["pageInfo"]["endCursor"]
+        current_identity, current_threads, current_comments, terminal_matches = read_identity(pr, graphql, len(held_threads), len(held_comments))
+        # Thread 4057345626: this bracket includes classification inputs and body hashes,
+        # closing the former same-second body-edit class with no classification-relevant residual.
+        if (
+            initial_identity == current_identity
+            and set(held_threads) == current_threads
+            and set(held_comments) == current_comments
+            and terminal_matches
+        ):
+            return threads, comments
+    die(
+        f"PR #{pr} changed during snapshot collection {SNAPSHOT_ATTEMPTS} times; "
+        "could not collect a stable snapshot"
+    )
 
 
 def excerpt(body: str, limit: int = 72) -> str:
@@ -153,8 +211,19 @@ def excerpt(body: str, limit: int = 72) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def survey(pr: int, reaction: bool = True) -> list[Thread]:
-    threads = fetch_threads(pr)
+def survey(
+    pr: int, reaction: bool = True, timeout_secs: float | None = None
+) -> list[Thread | FindingComment]:
+    from .pr_guard_issue_comments import classify_finding_comments, report
+
+    # Thread 4055845768: both gate-bearing comment sources come from the
+    # same GraphQL request before the caller consumes this survey.
+    threads, comments = (
+        fetch_threads(pr)
+        if timeout_secs is None
+        else fetch_threads(pr, timeout_secs)
+    )
+    finding_comments = classify_finding_comments(comments)
     for thread in threads:
         thread.classification = classify(thread)
         author = thread.last_author if thread.last_author is not None else "(unknown)"
@@ -167,9 +236,14 @@ def survey(pr: int, reaction: bool = True) -> list[Thread]:
     counts = {name: 0 for name in CLASSES}
     for thread in threads:
         counts[thread.classification] += 1
+    report(finding_comments)
+    comment_danger = sum(
+        comment.classification == "DANGER" for comment in finding_comments
+    )
     print(
         f"SUMMARY pr={pr} total={len(threads)}"
         + "".join(f" {name}={counts[name]}" for name in CLASSES)
+        + f" comment-findings={comment_danger}"
     )
     # PR #48 (vault note 'Unified Realms/Notes/Codex Review Bot
     # Reaction Signal.md'): the bot's PR reaction beside the summary —
@@ -194,8 +268,8 @@ def survey(pr: int, reaction: bool = True) -> list[Thread]:
     # OPENING survey), where it delays no dispatch and its output has
     # a human reader.
     if reaction:
-        reaction_banner(pr, [t.label for t in threads])
-    return threads
+        reaction_banner(pr, [thread.label for thread in threads], *([[comment.label for comment in finding_comments]] if finding_comments else []))
+    return [*threads, *finding_comments]
 
 
 def resolve_thread(thread: Thread) -> bool:

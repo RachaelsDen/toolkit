@@ -45,7 +45,7 @@ class ClosingSurveyTests(unittest.TestCase):
         with mock.patch.object(
             pr_guard_threads,
             "fetch_threads",
-            return_value=[thread("3867757439", "resolved")],
+            return_value=([thread("3867757439", "resolved")], []),
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner", side_effect=fake_banner
         ), redirect_stdout(out):

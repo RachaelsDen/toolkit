@@ -164,7 +164,8 @@ from .pr_guard_common import REPO_NAME, REPO_OWNER, gh_env
 # Live-verified 2026-08-27: GraphQL renders the bot's author login
 # WITHOUT the "[bot]" suffix (latestReviews author{login} reads
 # "chatgpt-codex-connector") while REST reactions report it WITH the
-# suffix — the round marker filters on both forms.
+# suffix. Issue-comment scanning shares this distinction through
+# pr_guard_issue_comments.login_is_bot; the round marker filters both forms.
 REACTION_BOT = "chatgpt-codex-connector[bot]"
 GRAPHQL_BOT_LOGIN = REACTION_BOT.removesuffix("[bot]")
 BOT_LOGINS = frozenset({REACTION_BOT, GRAPHQL_BOT_LOGIN})
@@ -175,6 +176,13 @@ BOT_LOGINS = frozenset({REACTION_BOT, GRAPHQL_BOT_LOGIN})
 # --timeout-secs overrides for both quicker and longer waits.
 WAIT_INTERVAL_SECS = 5.0
 DEFAULT_WAIT_TIMEOUT_SECS = 600
+
+# Thread 4057775436 (PR #10, P1): the post-timeout authority survey
+# has its own bounded window decoupled from the expired reaction
+# deadline. Bounded (30s) so the wait still terminates, generous
+# enough for the multi-request fixed-point machinery on a healthy
+# connection.
+FINAL_SURVEY_BUDGET_SECS = 30
 
 # Threads 3867503708 + 3867572256: every subprocess this family
 # dispatches is bounded by the ACTUAL remaining window — capped at

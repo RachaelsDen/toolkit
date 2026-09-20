@@ -42,6 +42,7 @@ from . import pr_guard_reaction
 from . import pr_guard_reaction_banner
 from . import pr_guard_reaction_probe
 from . import pr_guard_threads
+from . import pr_guard_wait_authority
 from .pr_guard_merge_fixtures import FakeClock, thread
 
 BOT = pr_guard_reaction.REACTION_BOT
@@ -279,7 +280,9 @@ class SurveyIntegrationTests(unittest.TestCase):
         # first-class BOT REACTION line carrying the thread label.
         out = io.StringIO()
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[thread("3867000001", "resolved")]
+            pr_guard_threads,
+            "fetch_threads",
+            return_value=([thread("3867000001", "resolved")], []),
         ), mock.patch.object(
             pr_guard_reaction, "gh_reactions", return_value=[react("+1")]
         ), mock.patch.object(
@@ -403,11 +406,14 @@ class WaitCliTests(unittest.TestCase):
             (["pr_guard.py", "wait", "48", "--timeout-secs", "10"], (48, 10)),
         ):
             with self.subTest(argv=argv):
-                with mock.patch.object(
-                    cli, "wait_reaction", return_value=0
+                with mock.patch.object(pr_guard_wait_authority, "survey", return_value=[]) as authority, mock.patch.object(
+                    pr_guard_wait_authority, "wait_reaction", return_value=0
                 ) as fake:
                     self.assertEqual(cli.main(argv), 0)
                 fake.assert_called_once_with(*expected)
+                authority.assert_called_once_with(
+                    48, reaction=False, timeout_secs=10.0
+                )
 
 
 if __name__ == "__main__":
