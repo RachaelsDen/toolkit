@@ -30,6 +30,20 @@ FINDING_BADGE = re.compile(
 ALL_FINDINGS_RECEIPT = re.compile(
     r"\breceipt(?::\s*all\s+findings|-all-findings)\b", re.IGNORECASE
 )
+FINDING_REF = re.compile(
+    r"\bcomment\s*(?:=\s*|\s+)\d+\b|#\d+\b", re.IGNORECASE
+)
+
+
+def comment_references_finding(body: str, finding_id: int) -> bool:
+    return (
+        re.search(
+            rf"\bcomment\s*(?:=\s*|\s+){finding_id}\b|#{finding_id}\b",
+            body,
+            re.IGNORECASE,
+        )
+        is not None
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,17 +134,18 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
             and not comment_is_clean_summary(reply)
             and (not comment_is_bot(reply) or FINDING_BADGE.search(reply.body) is None)
             and (
-                comment_is_bot(reply)
+                (
+                    comment_is_bot(reply)
+                    and (
+                        FINDING_REF.search(reply.body) is None
+                        or comment_references_finding(reply.body, comment.id)
+                    )
+                )
                 or (
                     comment_is_trusted_receipt(reply)
                     and (
                         ALL_FINDINGS_RECEIPT.search(reply.body) is not None
-                        or re.search(
-                            rf"\bcomment\s*(?:=\s*|\s+){comment.id}\b|#{comment.id}\b",
-                            reply.body,
-                            re.IGNORECASE,
-                        )
-                        is not None
+                        or comment_references_finding(reply.body, comment.id)
                     )
                 )
             )

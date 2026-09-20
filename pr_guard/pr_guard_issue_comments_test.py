@@ -180,6 +180,29 @@ class FindingClassificationTests(unittest.TestCase):
         self.assertIn("DANGER-COMMENT comment=1 author=bot", out.getvalue())
         self.assertIn("receipted-COMMENT comment=2 author=bot", out.getvalue())
 
+    def test_referencing_bot_follow_up_joins_only_target_finding_stream(self):
+        # Given: findings 1+3 receipted, bot posts `comment=3 is still broken`.
+        # When: classified. Then: finding 3 reopens, finding 1 stays receipted.
+        # When: receipt for 3 lands. Then: finding 3 is re-cleared.
+        # When: a non-referencing bot follow-up lands. Then: all findings reopen.
+        base_comments = [
+            comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+            comment(2, "RachaelsDen", "2026-09-19T10:01:00Z", "Fixed comment=1."),
+            comment(3, "chatgpt-codex-connector", "2026-09-19T10:02:00Z", "P2 Badge"),
+            comment(4, "RachaelsDen", "2026-09-19T10:03:00Z", "Fixed comment=3."),
+        ]
+        bot_ref_3 = comment(5, "chatgpt-codex-connector", "2026-09-19T10:04:00Z", "comment=3 is still broken", author_type="Bot")
+        findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [bot_ref_3])
+        self.assertEqual([(f.id, f.classification) for f in findings], [(1, "receipted"), (3, "DANGER")])
+
+        receipt_3 = comment(6, "RachaelsDen", "2026-09-19T10:05:00Z", "Fixed comment=3.")
+        findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [bot_ref_3, receipt_3])
+        self.assertEqual([(f.id, f.classification) for f in findings], [(1, "receipted"), (3, "receipted")])
+
+        bot_no_ref = comment(7, "chatgpt-codex-connector", "2026-09-19T10:06:00Z", "still broken", author_type="Bot")
+        findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [bot_ref_3, receipt_3, bot_no_ref])
+        self.assertEqual([(f.id, f.classification) for f in findings], [(1, "DANGER"), (3, "DANGER")])
+
 
 class SurveyAndGateTests(unittest.TestCase):
     def test_banner_names_issue_comment_findings_without_review_threads(self):
