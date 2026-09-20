@@ -66,7 +66,7 @@ class FindingClassificationTests(unittest.TestCase):
                 comment(2, "chatgpt-codex-connector", "2026-09-19T10:01:00Z", "P1 Badge"),
                 comment(3, "chatgpt-codex-connector", "2026-09-19T10:02:00Z", "P2 Badge"),
                 comment(4, "chatgpt-codex-connector", "2026-09-19T10:03:00Z", "Didn't find any major issues. Bravo."),
-                comment(5, "chatgpt-codex-connector", "2026-09-19T10:04:00Z", "**<sub>![Badge](https://example.test/badge)</sub>** finding"),
+                comment(5, "chatgpt-codex-connector", "2026-09-19T10:04:00Z", "**<sub>![P1 Badge](https://example.test/badge)</sub>** finding"),
             ]
         )
         self.assertEqual([item.id for item in findings], [1, 2, 3, 5])

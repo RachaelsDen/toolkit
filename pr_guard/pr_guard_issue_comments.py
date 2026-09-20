@@ -25,7 +25,7 @@ __all__ = [
 ]
 
 FINDING_BADGE = re.compile(
-    r"\bP[012]\s+Badge\b|^\s*\*\*<sub>.*?\bBadge\b", re.DOTALL
+    r"\bP[012]\s+Badge\b|^\s*\*\*<sub>.*?\bP[012]\s+Badge\b", re.DOTALL
 )
 ALL_FINDINGS_RECEIPT = re.compile(
     r"\breceipt(?::\s*all\s+findings|-all-findings)\b", re.IGNORECASE
@@ -103,9 +103,18 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
             if (
                 comment_effective_time(reply) > finding_time
                 or (
-                    not finding_is_edited
-                    and comment_effective_time(reply) == finding_time
-                    and reply.id > comment.id
+                    comment_effective_time(reply) == finding_time
+                    and (
+                        (
+                            comment_is_bot(reply)
+                            and comment_effective_time(reply) != reply.created_at
+                        )
+                        or (
+                            comment_effective_time(reply) == reply.created_at
+                            and not finding_is_edited
+                            and reply.id > comment.id
+                        )
+                    )
                 )
             )
             and not comment_is_clean_summary(reply)
