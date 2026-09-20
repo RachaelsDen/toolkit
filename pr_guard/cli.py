@@ -229,6 +229,7 @@ from .pr_guard_common import blocked_gh_host
 from .pr_guard_merge import DEFAULT_QUIET_SECS, merge_guarded
 from .pr_guard_reaction import (
     DEFAULT_WAIT_TIMEOUT_SECS,
+    FINAL_SURVEY_BUDGET_SECS,
     probe_timeout_budget,
     wait_reaction,
 )
@@ -498,7 +499,7 @@ def wait_with_thread_authority(
         at_timeout = survey(
             pr,
             reaction=False,
-            timeout_secs=probe_timeout_budget(deadline - time.monotonic()),
+            timeout_secs=FINAL_SURVEY_BUDGET_SECS,
         )
     except subprocess.TimeoutExpired:
         print("WAIT TIMEOUT: final survey UNREADABLE; retaining exit 1")

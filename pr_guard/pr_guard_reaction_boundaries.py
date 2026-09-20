@@ -177,6 +177,13 @@ BOT_LOGINS = frozenset({REACTION_BOT, GRAPHQL_BOT_LOGIN})
 WAIT_INTERVAL_SECS = 5.0
 DEFAULT_WAIT_TIMEOUT_SECS = 600
 
+# Thread 4057775436 (PR #10, P1): the post-timeout authority survey
+# has its own bounded window decoupled from the expired reaction
+# deadline. Bounded (30s) so the wait still terminates, generous
+# enough for the multi-request fixed-point machinery on a healthy
+# connection.
+FINAL_SURVEY_BUDGET_SECS = 30
+
 # Threads 3867503708 + 3867572256: every subprocess this family
 # dispatches is bounded by the ACTUAL remaining window — capped at
 # two poll intervals (a subprocess stalled longer is dead:

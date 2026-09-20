@@ -302,6 +302,7 @@ from .pr_guard_reaction_latch import (
 # the seams still keep ONE home.
 from .pr_guard_reaction_probe import (
     DEFAULT_WAIT_TIMEOUT_SECS,
+    FINAL_SURVEY_BUDGET_SECS,
     REACTION_BOT,
     WAIT_INTERVAL_SECS,
     ReactionBracketUnreadable, ReactionHeadMoved,

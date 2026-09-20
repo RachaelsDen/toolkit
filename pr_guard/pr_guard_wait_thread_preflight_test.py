@@ -149,7 +149,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
     def test_timeout_survey_timeout_keeps_exit_one(self):
         # Given: a clean preflight and an unreadable final authority
         # read. When: the reaction wait times out. Then: the final
-        # survey gets the bounded remaining budget and preserves exit 1.
+        # survey gets its dedicated bounded budget and preserves exit 1.
         fetch_calls = []
         subprocess_calls = []
         real_fetch_threads = pr_guard_threads.fetch_threads
@@ -174,11 +174,63 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "12"])
         self.assertEqual(code, 1)
-        self.assertEqual(fetch_calls, [10.0, 10.0])
+        self.assertEqual(fetch_calls, [10.0, cli.FINAL_SURVEY_BUDGET_SECS])
         self.assertEqual(len(subprocess_calls), 1)
         self.assertGreaterEqual(subprocess_calls[0], 1.0)
         self.assertLessEqual(subprocess_calls[0], 10.0)
         self.assertIn("WAIT TIMEOUT: final survey UNREADABLE", out.getvalue())
+
+    def test_final_survey_multi_request_latency_completes_and_detects_danger(self):
+        # Given: clean preflight, reaction timeout, and a final survey with 3 sequential GraphQL requests taking 2s each.
+        # When: wait runs.
+        # Then: final survey completes within 30s budget, detects DANGER at timeout, and exits 3.
+        events = []
+        clock_time = [100.0]
+
+        def fake_monotonic():
+            return clock_time[0]
+
+        def fake_fetch_threads(pr, timeout_secs=None):
+            events.append(("fetch_threads", timeout_secs))
+            if len(events) == 1:
+                return [thread("10", "resolved")], []
+            deadline = fake_monotonic() + (timeout_secs or 0)
+            for _ in range(3):
+                clock_time[0] += 2.0
+                remaining = deadline - fake_monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(["gh", "api", "graphql"], 1.0)
+            return [danger_thread()], []
+
+        out = io.StringIO()
+        with mock.patch.object(
+            pr_guard_threads, "fetch_threads", side_effect=fake_fetch_threads
+        ), mock.patch.object(
+            pr_guard_threads, "reaction_banner"
+        ), mock.patch.object(
+            cli, "wait_reaction", return_value=1
+        ), mock.patch.object(
+            cli.time, "monotonic", side_effect=fake_monotonic
+        ), redirect_stdout(out):
+            code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "5"])
+        self.assertEqual(code, 3)
+        self.assertEqual(events, [("fetch_threads", 5.0), ("fetch_threads", cli.FINAL_SURVEY_BUDGET_SECS)])
+        self.assertIn("WAIT FINDINGS (at timeout)", out.getvalue())
+
+    def test_reaction_deadline_never_extends(self):
+        # Given: wait is invoked with --timeout-secs 5.
+        # When: wait_reaction is called.
+        # Then: wait_reaction receives exact timeout_secs 5 (reaction deadline never extends).
+        with mock.patch.object(
+            pr_guard_threads, "fetch_threads", return_value=([thread("10", "resolved")], [])
+        ), mock.patch.object(
+            pr_guard_threads, "reaction_banner"
+        ), mock.patch.object(
+            cli, "wait_reaction", return_value=1
+        ) as mock_wait:
+            code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "5"])
+        self.assertEqual(code, 1)
+        mock_wait.assert_called_once_with(48, 5)
 
 
 if __name__ == "__main__":
