@@ -779,13 +779,13 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
     review names the head (EVERY zero-findings pass: no findings =>
     no review object), so the default wait holds a standing THUMBS_UP
     to the FULL timeout after an explicit verdict. With the flag, a
-    DONE-CLASSIFIED THUMBS_UP exits 0 immediately (standing or
-    observed): the user's explicit opt-in is the authority for the
-    observation and review-evidence gates. The +1's own staleness
-    CLASSIFICATION still applies — a +1 predating the head push or
-    the boundary markers reads THUMBS_UP_STALE and holds (a stale
-    verdict is not "codex said this PR is fine"); only state ==
-    REACTION_DONE accepts. The accepted risk: a standing pass may
+    DONE-CLASSIFIED THUMBS_UP exits 0 immediately only when its +1
+    postdates every known request/trigger boundary: the user's
+    explicit opt-in is the authority for the observation and
+    review-evidence gates. A +1 predating the head push or a bound
+    reads THUMBS_UP_STALE and holds; a push-started exception's
+    DONE classification still holds when its +1 predates the newest
+    request/trigger. The accepted risk: a standing pass may
     predate an unposted new round — thread state remains the merge
     authority.
     """
@@ -1048,28 +1048,6 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
             trigger = review_head = base_oid = base_bound = base_event_bound = head_bound_now = ""
             request_ids, trigger_ids, review_stamp = set(), set(), ""
         elapsed = pr_guard_reaction.time.monotonic() - start
-        # --accept-standing (user request 2026-08-28, no thread ID —
-        # the standalone repo's first post-extraction feature): the
-        # OPT-IN fast path for already-passed PRs. A DONE-CLASSIFIED
-        # THUMBS_UP exits 0 immediately, standing or observed — the
-        # explicit opt-in IS the authority for the observation gates
-        # (round 5's saw_non_done, round 7's replaced, round 9's
-        # watermark) and the review-evidence legs (rounds 17/18/20/22/
-        # 25's head_bound/review_head/review_stamp — the zero-review-
-        # object '' shape included: every zero-findings pass posts no
-        # review object, so round 25 withholds on it by default).
-        # What it NEVER bypasses: the +1's own staleness
-        # CLASSIFICATION at the reading (bot_reaction_reading's
-        # round-bounds binding) — a +1 predating the head push or the
-        # boundary markers reads THUMBS_UP_STALE and holds to timeout
-        # (a stale verdict is not "codex said this PR is fine"); only
-        # state == REACTION_DONE accepts, never STALE/UNVERIFIED/
-        # UNREADABLE. Placement: BEFORE every latch/exit leg and the
-        # HOLDING banners, so the opt-in path runs no gate machinery
-        # at all; the default (flagless) path is byte-identical.
-        if accept_standing and state == pr_guard_reaction.REACTION_DONE:
-            print(f"WAIT DONE (ACCEPTED STANDING): THUMBS_UP at {elapsed:.0f}s — the --accept-standing opt-in bypassed the observation and review-evidence gates (rounds 5/25); the staleness classification still applied (only a DONE-classified +1 accepts). The accepted risk: a standing pass may predate an unposted new round — thread state remains the merge authority (run survey/pre-merge before any merge).")
-            return 0
         # Thread 3868443452 (round 8, P1): the reset runs BEFORE this
         # probe's own reading contributes — an arming (or a DONE)
         # certified under the NEW head must not ride a latch armed
@@ -1414,6 +1392,16 @@ def wait_reaction(pr: int, timeout_secs: int, accept_standing: bool = False) -> 
             # reading ACTIVE past this point is a verified
             # POST-REQUEST one, which re-opens immediately below.
             none_arming_gated = True
+        # --accept-standing bypasses observation and review-evidence gates,
+        # but its +1 must still postdate every known request/trigger boundary.
+        standing_boundary = max(request.partition("|")[0], trigger.partition("|")[0])
+        if (
+            accept_standing
+            and state == pr_guard_reaction.REACTION_DONE
+            and plus_one.partition("|")[0] > standing_boundary
+        ):
+            print(f"WAIT DONE (ACCEPTED STANDING): THUMBS_UP at {elapsed:.0f}s — the --accept-standing opt-in bypassed the observation and review-evidence gates (rounds 5/25); the +1 postdates every known request/trigger boundary. The accepted risk: a standing pass may predate an unposted new round — thread state remains the merge authority (run survey/pre-merge before any merge).")
+            return 0
         # [The round-19 REQUEST-FLOOR demotion that stood here
         # (thread 3871844565) is REMOVED by round 20 / thread
         # 3872194017 — the reading's round-13 boundary binding alone
