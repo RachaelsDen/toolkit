@@ -227,6 +227,51 @@ class FindingClassificationTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [receipt_unmatched_ref])
         self.assertEqual([(f.id, f.classification) for f in findings], [(1, "DANGER"), (3, "DANGER")])
 
+    def test_same_second_bot_edited_finding_and_receipt_is_danger(self):
+        # Given: bot comment created and edited at T, and receipt created at T (same second).
+        # When: classified. Then: timestamp tie is ambiguous -> DANGER.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot", updated_at="2026-09-20T10:00:00Z"),
+                comment(2, "RachaelsDen", "2026-09-20T10:00:00Z", "Fixed comment=1."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "DANGER")
+
+    def test_same_second_bot_unedited_finding_and_receipt_is_danger(self):
+        # Given: bot comment created at T with no edit evidence, and receipt created at T.
+        # When: classified. Then: same-second tie is ambiguous -> DANGER.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:00:00Z", "Fixed comment=1."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "DANGER")
+
+    def test_receipt_strictly_after_bot_finding_is_receipted(self):
+        # Given: bot comment created at T and receipt created at T+1s.
+        # When: classified. Then: strictly-later receipt clears finding -> receipted.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:00:01Z", "Fixed comment=1."),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "receipted")
+
+    def test_edited_bot_reply_strictly_after_receipt_reopens(self):
+        # Given: bot finding at T-1, receipt at T, and bot reply edited at T+1s.
+        # When: classified. Then: bot follow-up reopens finding -> DANGER.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T09:59:59Z", "P1 Badge", author_type="Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:00:00Z", "Fixed comment=1."),
+                comment(3, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "Still broken.", updated_at="2026-09-20T10:00:01Z", author_type="Bot"),
+            ]
+        )
+        self.assertEqual(findings[0].classification, "DANGER")
+
 
 class SurveyAndGateTests(unittest.TestCase):
     def test_banner_names_issue_comment_findings_without_review_threads(self):

@@ -115,7 +115,6 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
         if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
             continue
         finding_time = comment_effective_time(comment)
-        finding_is_edited = finding_time != comment.created_at
         replies = [
             reply
             for reply in ordered
@@ -123,17 +122,8 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
                 comment_effective_time(reply) > finding_time
                 or (
                     comment_effective_time(reply) == finding_time
-                    and (
-                        (
-                            comment_is_bot(reply)
-                            and comment_effective_time(reply) != reply.created_at
-                        )
-                        or (
-                            comment_effective_time(reply) == reply.created_at
-                            and not finding_is_edited
-                            and reply.id > comment.id
-                        )
-                    )
+                    and comment_is_bot(reply)
+                    and comment_effective_time(reply) != reply.created_at
                 )
             )
             and not comment_is_clean_summary(reply)
