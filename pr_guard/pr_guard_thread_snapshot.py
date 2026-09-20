@@ -149,8 +149,11 @@ def read_identity(
             )
             comment_cursor = connection["pageInfo"]["startCursor"]
     assert identity is not None
-    # Thread 4057278844: bracket the validation walk with sentinel reads — fold the
-    # post-walk check into the final page response and require first == last.
-    if root["updatedAt"] != identity[0]:
-        identity = (root["updatedAt"], *identity[1:])
+    # Thread 4057312018: bracket the validation walk with full composite identities —
+    # recompute and compare the complete identity (updatedAt + totalCounts + tail max-ids)
+    # from the final validation response against the first response's identity. The recursive
+    # L8 invariant: every bracket comparison uses the full identity, never a single field.
+    final_identity = identity_from_root(root)
+    if identity != final_identity:
+        identity = final_identity
     return identity, current_threads, current_comments
