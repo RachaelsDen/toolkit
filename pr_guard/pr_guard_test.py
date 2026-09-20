@@ -1004,8 +1004,9 @@ Pre-existing or timeout DANGER exits 3; a clean authority snapshot
 never authorizes exit 0, which stays reaction-evidence-only (or the
 explicit --accept-standing opt-in). The suite pins zero reaction
 probes on pre-existing findings, findings appearing during a timed-out
-wait, the clean timeout, and the reaction pass bypassing the final
-survey (603 -> 607 tests).
+wait, the clean timeout, the reaction pass bypassing the final survey,
+and bounded unreadable preflight/final authority reads (603 -> 609
+tests).
 
 Run: cd .omo/start-work && python3 -m unittest pr_guard_test -v
 No network: every suite is pure; nothing shells out to gh.
