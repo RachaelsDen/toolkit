@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die
 
@@ -11,6 +11,17 @@ if TYPE_CHECKING:
 
 
 PAGE_SIZE = 100
+SNAPSHOT_ATTEMPTS: Final = 3
+
+PULL_REQUEST_UPDATED_AT_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      updatedAt
+    }
+  }
+}
+"""
 
 REVISION_QUERY = f"""
 query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor: String, $fetchThreads: Boolean!, $fetchComments: Boolean!) {{
@@ -33,6 +44,17 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
   }}
 }}
 """
+
+
+def pull_request_updated_at(pr: int, graphql: Callable[[str, dict], dict]) -> str:
+    data = graphql(
+        PULL_REQUEST_UPDATED_AT_QUERY,
+        {"owner": REPO_OWNER, "name": REPO_NAME, "number": pr},
+    )
+    root = (data.get("repository") or {}).get("pullRequest")
+    if root is None:
+        die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
+    return root["updatedAt"]
 
 
 def connections_match(

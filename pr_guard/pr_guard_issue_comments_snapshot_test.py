@@ -133,6 +133,7 @@ class CombinedSnapshotTests(unittest.TestCase):
         payload = {
             "repository": {
                 "pullRequest": {
+                    "updatedAt": "2026-09-20T10:00:00Z",
                     "reviewThreads": {
                         "pageInfo": {"endCursor": None, "hasNextPage": False},
                         "nodes": [{"id": "thread", "isResolved": True, "isOutdated": False, "head": {"nodes": [{"databaseId": 10}]}, "last": {"nodes": [{"databaseId": 11, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed."}]}}],
@@ -153,7 +154,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             threads, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual([thread.node_id for thread in threads], ["thread"])
         self.assertEqual([(item.id, item.author, item.author_type) for item in comments], [(12, "chatgpt-codex-connector[bot]", "Bot")])
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls), 2)
 
     def test_paginates_threads_and_comments_until_both_connections_finish(self):
         # Given: threads finish on page one while comments continue to page two.
@@ -163,6 +164,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                         "comments": {"pageInfo": {"endCursor": "comment-next", "hasNextPage": True}, "nodes": []},
                     }
@@ -171,6 +173,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
@@ -178,11 +181,13 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                         "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
             },
+            {"repository": {"pullRequest": {"updatedAt": "2026-09-20T10:00:00Z"}}},
         ]
 
         def fake_graphql(query, variables):
@@ -200,10 +205,11 @@ class CombinedSnapshotTests(unittest.TestCase):
         # Given: comments finish before a second thread page and a finding lands.
         # When: the combined snapshot completes. Then: revalidation refetches it.
         calls = []
-        responses = [
+        responses = iter([
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-next", "hasNextPage": True}, "nodes": []},
                         "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}]},
                     }
@@ -212,6 +218,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
@@ -219,6 +226,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                         "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
                     }
@@ -227,16 +235,19 @@ class CombinedSnapshotTests(unittest.TestCase):
             {
                 "repository": {
                     "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
                         "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                         "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "author": {"login": "chatgpt-codex-connector", "__typename": "Bot"}, "body": "P1 Badge", "createdAt": "2026-09-20T10:02:00Z", "updatedAt": "2026-09-20T10:02:00Z"}]},
                     }
                 }
             },
-        ]
+        ])
 
         def fake_graphql(query, variables):
             calls.append((query, variables))
-            return responses.pop(0)
+            if "fetchThreads" not in variables:
+                return {"repository": {"pullRequest": {"updatedAt": "2026-09-20T10:00:00Z"}}}
+            return next(responses)
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             _, comments = pr_guard_threads.fetch_threads(68)

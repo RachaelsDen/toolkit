@@ -1,6 +1,8 @@
 """Round-two issue-comment snapshot and receipt-ordering regressions."""
 
+import io
 import unittest
+from contextlib import redirect_stderr
 from unittest import mock
 
 from . import pr_guard_issue_comments, pr_guard_threads
@@ -45,7 +47,13 @@ def thread_node(last_author="RachaelsDen", last_body="Fixed."):
     }
 
 
-def page(threads=None, comments=None, threads_more=False, comments_more=False):
+def page(
+    threads=None,
+    comments=None,
+    threads_more=False,
+    comments_more=False,
+    updated_at="2026-09-20T10:00:00Z",
+):
     connections = {}
     if threads is not None:
         connections["reviewThreads"] = {
@@ -57,21 +65,32 @@ def page(threads=None, comments=None, threads_more=False, comments_more=False):
             "pageInfo": {"endCursor": "comment-next", "hasNextPage": comments_more},
             "nodes": comments,
         }
+    connections["updatedAt"] = updated_at
     return {"repository": {"pullRequest": connections}}
+
+
+def sentinel(updated_at):
+    return {"repository": {"pullRequest": {"updatedAt": updated_at}}}
 
 
 class SnapshotRevalidationTests(unittest.TestCase):
     def test_thread_follow_up_during_comment_pagination_is_refetched(self):
         # Given: threads finish while comments paginate and a bot follows up.
         # When: the snapshot is fetched. Then: the fresh thread is returned.
-        responses = [
+        responses = iter([
             page([thread_node()], [], comments_more=True),
             page(comments=[]),
             page([thread_node("chatgpt-codex-connector", "Still broken.")], []),
             page([thread_node("chatgpt-codex-connector", "Still broken.")], []),
-        ]
+        ])
+
+        def fake_graphql(query, variables):
+            if "fetchThreads" not in variables:
+                return sentinel("2026-09-20T10:00:00Z")
+            return next(responses)
+
         with mock.patch.object(
-            pr_guard_threads, "gh_graphql", side_effect=responses
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
         ):
             threads, _ = pr_guard_threads.fetch_threads(68)
         self.assertEqual(pr_guard_threads.classify(threads[0]), "DANGER")
@@ -79,17 +98,123 @@ class SnapshotRevalidationTests(unittest.TestCase):
     def test_mid_list_comment_edit_during_pagination_is_refetched(self):
         # Given: an earlier comment changes while a later comments page arrives.
         # When: the snapshot is fetched. Then: its bumped update time is returned.
-        responses = [
+        responses = iter([
             page([], [comment_node(1, "2026-09-20T10:00:00Z")], comments_more=True),
             page(comments=[comment_node(2, "2026-09-20T10:02:00Z")]),
             page([], [comment_node(1, "2026-09-20T10:01:00Z"), comment_node(2, "2026-09-20T10:02:00Z")]),
             page([], [comment_node(1, "2026-09-20T10:01:00Z"), comment_node(2, "2026-09-20T10:02:00Z")]),
-        ]
+        ])
+
+        def fake_graphql(query, variables):
+            if "fetchThreads" not in variables:
+                return sentinel("2026-09-20T10:00:00Z")
+            return next(responses)
+
         with mock.patch.object(
-            pr_guard_threads, "gh_graphql", side_effect=responses
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
         ):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual(comments[0].updated_at, "2026-09-20T10:01:00Z")
+
+    def test_stable_sentinel_keeps_held_paginated_snapshot(self):
+        # Given: a stable PR updatedAt across the snapshot and revalidation.
+        # When: the complete walk finishes. Then: the held data proceeds.
+        calls = []
+        responses = [
+            page(
+                [thread_node()],
+                [comment_node(1, "2026-09-20T10:00:00Z")],
+                comments_more=True,
+            ),
+            page(comments=[comment_node(2, "2026-09-20T10:01:00Z")]),
+            page(
+                [thread_node()],
+                [
+                    comment_node(1, "2026-09-20T10:00:00Z"),
+                    comment_node(2, "2026-09-20T10:01:00Z"),
+                ],
+            ),
+            sentinel("2026-09-20T10:00:00Z"),
+        ]
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return responses.pop(0)
+
+        with mock.patch.object(
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
+        ):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual([item.id for item in comments], [1, 2])
+        self.assertEqual(len(calls), 4)
+
+    def test_sentinel_bump_after_first_page_restarts_full_snapshot(self):
+        # Given: a mutation lands after page one and bumps pullRequest.updatedAt.
+        # When: the ending sentinel observes it. Then: a fresh snapshot returns it.
+        calls = []
+        responses = [
+            page(
+                [thread_node()],
+                [comment_node(1, "2026-09-20T10:00:00Z")],
+                comments_more=True,
+                updated_at="2026-09-20T10:00:00Z",
+            ),
+            page([], [], updated_at="2026-09-20T10:01:00Z"),
+            page(
+                [thread_node()],
+                [comment_node(1, "2026-09-20T10:00:00Z")],
+                updated_at="2026-09-20T10:01:00Z",
+            ),
+            sentinel("2026-09-20T10:01:00Z"),
+            page(
+                [thread_node()],
+                [
+                    comment_node(1, "2026-09-20T10:01:00Z"),
+                    comment_node(2, "2026-09-20T10:01:00Z"),
+                ],
+                updated_at="2026-09-20T10:01:00Z",
+            ),
+            sentinel("2026-09-20T10:01:00Z"),
+        ]
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return responses.pop(0)
+
+        with mock.patch.object(
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
+        ):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual([item.id for item in comments], [1, 2])
+        self.assertEqual(comments[0].updated_at, "2026-09-20T10:01:00Z")
+        self.assertIsNone(calls[4][1]["ccursor"])
+
+    def test_changing_sentinel_fails_closed_after_three_attempts(self):
+        # Given: every full snapshot sees a newer PR revision at its end.
+        # When: all retry attempts are exhausted. Then: the gate fails closed.
+        snapshot_calls = 0
+        sentinel_calls = 0
+
+        def fake_graphql(query, variables):
+            nonlocal sentinel_calls, snapshot_calls
+            if query == pr_guard_threads.THREADS_QUERY:
+                snapshot_calls += 1
+                return page(
+                    [thread_node()],
+                    [],
+                    updated_at=f"before-{snapshot_calls}",
+                )
+            sentinel_calls += 1
+            return sentinel(f"after-{sentinel_calls}")
+
+        error = io.StringIO()
+        with mock.patch.object(
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
+        ), redirect_stderr(error), self.assertRaises(SystemExit):
+            pr_guard_threads.fetch_threads(68)
+        self.assertIn("stable snapshot", error.getvalue())
+        self.assertEqual(snapshot_calls, 3)
+        self.assertEqual(sentinel_calls, 3)
 
 
 class FindingReceiptOrderingTests(unittest.TestCase):

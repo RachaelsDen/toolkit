@@ -48,6 +48,7 @@ THREADS_QUERY = f"""
 query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor: String, $fetchThreads: Boolean!, $fetchComments: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     pullRequest(number: $number) {{
+      updatedAt
       reviewThreads(first: {PAGE_SIZE}, after: $cursor) @include(if: $fetchThreads) {{
         pageInfo {{ endCursor hasNextPage }}
         nodes {{
@@ -121,75 +122,92 @@ def gh_graphql(query: str, variables: dict) -> dict:
 
 def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_issue_comments import IssueComment
+    from .pr_guard_thread_snapshot import (
+        SNAPSHOT_ATTEMPTS,
+        connections_match,
+        pull_request_updated_at,
+    )
 
-    threads: list[Thread] = []
-    comments: list[IssueComment] = []
-    cursor: str | None = None
-    ccursor: str | None = None
-    fetch_threads_page = True
-    fetch_comments_page = True
-    page_count = 0
-    while fetch_threads_page or fetch_comments_page:
-        page_count += 1
-        data = gh_graphql(
-            THREADS_QUERY,
-            {
-                "owner": REPO_OWNER,
-                "name": REPO_NAME,
-                "number": pr,
-                "cursor": cursor,
-                "ccursor": ccursor,
-                "fetchThreads": fetch_threads_page,
-                "fetchComments": fetch_comments_page,
-            },
+    for _ in range(SNAPSHOT_ATTEMPTS):
+        threads: list[Thread] = []
+        comments: list[IssueComment] = []
+        cursor: str | None = None
+        ccursor: str | None = None
+        fetch_threads_page = True
+        fetch_comments_page = True
+        page_count = 0
+        initial_updated_at = ""
+        while fetch_threads_page or fetch_comments_page:
+            page_count += 1
+            data = gh_graphql(
+                THREADS_QUERY,
+                {
+                    "owner": REPO_OWNER,
+                    "name": REPO_NAME,
+                    "number": pr,
+                    "cursor": cursor,
+                    "ccursor": ccursor,
+                    "fetchThreads": fetch_threads_page,
+                    "fetchComments": fetch_comments_page,
+                },
+            )
+            root = (data.get("repository") or {}).get("pullRequest")
+            if root is None:
+                die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
+            if page_count == 1:
+                initial_updated_at = root["updatedAt"]
+            if fetch_threads_page:
+                conn = root["reviewThreads"]
+                for node in conn["nodes"]:
+                    head = node["head"]["nodes"]
+                    last = node["last"]["nodes"]
+                    last_comment = last[-1] if last else {}
+                    author = last_comment.get("author") or {}
+                    threads.append(
+                        Thread(
+                            node_id=node["id"],
+                            head_id=head[0]["databaseId"] if head else None,
+                            last_id=last_comment.get("databaseId"),
+                            last_author=author.get("login"),
+                            last_author_type=author.get("__typename"),
+                            last_body=last_comment.get("body") or "",
+                            is_resolved=node["isResolved"],
+                            is_outdated=node["isOutdated"],
+                        )
+                    )
+                fetch_threads_page = conn["pageInfo"]["hasNextPage"]
+                cursor = conn["pageInfo"]["endCursor"]
+            if fetch_comments_page:
+                conn = root["comments"]
+                for node in conn["nodes"]:
+                    author = node.get("author") or {}
+                    comments.append(
+                        IssueComment(
+                            id=node["databaseId"],
+                            author=author.get("login"),
+                            author_type=author.get("__typename"),
+                            created_at=node["createdAt"],
+                            updated_at=node["updatedAt"],
+                            body=node["body"],
+                        )
+                    )
+                fetch_comments_page = conn["pageInfo"]["hasNextPage"]
+                ccursor = conn["pageInfo"]["endCursor"]
+        # Thread 4056828167 (supersedes the prior rounds' per-page bracket
+        # reasoning; those comments remain as provenance): the sentinel closes every
+        # during-the-walk window in O(1) — pagination, revalidation, and validation
+        # pages are all bracketed by the two sentinel reads.
+        current_matches = page_count == 1 or connections_match(
+            pr, gh_graphql, threads, comments
         )
-        root = (data.get("repository") or {}).get("pullRequest")
-        if root is None:
-            die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-        if fetch_threads_page:
-            conn = root["reviewThreads"]
-            for node in conn["nodes"]:
-                head = node["head"]["nodes"]
-                last = node["last"]["nodes"]
-                last_comment = last[-1] if last else {}
-                author = last_comment.get("author") or {}
-                threads.append(
-                    Thread(
-                        node_id=node["id"],
-                        head_id=head[0]["databaseId"] if head else None,
-                        last_id=last_comment.get("databaseId"),
-                        last_author=author.get("login"),
-                        last_author_type=author.get("__typename"),
-                        last_body=last_comment.get("body") or "",
-                        is_resolved=node["isResolved"],
-                        is_outdated=node["isOutdated"],
-                    )
-                )
-            fetch_threads_page = conn["pageInfo"]["hasNextPage"]
-            cursor = conn["pageInfo"]["endCursor"]
-        if fetch_comments_page:
-            conn = root["comments"]
-            for node in conn["nodes"]:
-                author = node.get("author") or {}
-                comments.append(
-                    IssueComment(
-                        id=node["databaseId"],
-                        author=author.get("login"),
-                        author_type=author.get("__typename"),
-                        created_at=node["createdAt"],
-                        updated_at=node["updatedAt"],
-                        body=node["body"],
-                    )
-                )
-            fetch_comments_page = conn["pageInfo"]["hasNextPage"]
-            ccursor = conn["pageInfo"]["endCursor"]
-    # The decision snapshot is the union; re-list both connections' IDs
-    # and revisions after pagination before a gate caller consumes it.
-    from .pr_guard_thread_snapshot import connections_match
-
-    if page_count > 1 and not connections_match(pr, gh_graphql, threads, comments):
-        return fetch_threads(pr)
-    return threads, comments
+        if current_matches and initial_updated_at == pull_request_updated_at(
+            pr, gh_graphql
+        ):
+            return threads, comments
+    die(
+        f"PR #{pr} changed during snapshot collection {SNAPSHOT_ATTEMPTS} times; "
+        "could not collect a stable snapshot"
+    )
 
 
 def excerpt(body: str, limit: int = 72) -> str:
