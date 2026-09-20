@@ -382,6 +382,77 @@ class CombinedSnapshotTests(unittest.TestCase):
         self.assertEqual(comments[0].updated_at, "2026-09-20T10:01:00Z")
         self.assertEqual(len(calls), 6)
 
+    def test_mutation_after_first_validation_page_retries_snapshot(self):
+        # Given: validation paginates over 101 held comments and a mutation lands during page 2.
+        # When: snapshot completes. Then: post-walk sentinel mismatch triggers retry.
+        calls = []
+
+        def build_payload(updated_at, comments_nodes, held_nodes=None, has_next=False, start_cursor=None):
+            payload = with_identity(
+                {
+                    "repository": {
+                        "pullRequest": {
+                            "updatedAt": updated_at,
+                            "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": None, "hasNextPage": False}, "nodes": []},
+                            "comments": {
+                                "totalCount": 101,
+                                "pageInfo": {"endCursor": None, "hasNextPage": False},
+                                "nodes": comments_nodes,
+                            },
+                        }
+                    }
+                }
+            )
+            if held_nodes is not None:
+                payload["repository"]["pullRequest"]["heldComments"] = {
+                    "pageInfo": {"startCursor": start_cursor, "hasPreviousPage": has_next},
+                    "nodes": held_nodes,
+                }
+            return payload
+
+        page1_nodes = [
+            {
+                "databaseId": i,
+                "author": {"login": "RachaelsDen", "__typename": "User"},
+                "body": "Fixed.",
+                "createdAt": "2026-09-20T10:00:00Z",
+                "updatedAt": "2026-09-20T10:00:00Z",
+            }
+            for i in range(1, 101)
+        ]
+        page2_nodes = [
+            {
+                "databaseId": 101,
+                "author": {"login": "RachaelsDen", "__typename": "User"},
+                "body": "Fixed.",
+                "createdAt": "2026-09-20T10:00:00Z",
+                "updatedAt": "2026-09-20T10:00:00Z",
+            }
+        ]
+        all_nodes = page1_nodes + page2_nodes
+
+        responses = iter(
+            [
+                build_payload("2026-09-20T10:00:00Z", all_nodes),
+                build_payload("2026-09-20T10:00:00Z", all_nodes),
+                build_payload("2026-09-20T10:00:00Z", all_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
+                build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page2_nodes, has_next=False),
+                build_payload("2026-09-20T10:01:00Z", all_nodes),
+                build_payload("2026-09-20T10:01:00Z", all_nodes),
+                build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
+                build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page2_nodes, has_next=False),
+            ]
+        )
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return next(responses)
+
+        with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual(len(comments), 101)
+        self.assertEqual(len(calls), 8)
+
 
 if __name__ == "__main__":
     unittest.main()
