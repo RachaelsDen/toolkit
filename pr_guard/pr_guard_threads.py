@@ -162,6 +162,12 @@ def excerpt(body: str, limit: int = 72) -> str:
 def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
     from .pr_guard_issue_comments import fetch_finding_comments, report
 
+    finding_comments = fetch_finding_comments(pr)
+    # Thread 4055793477: finish every survey's snapshot with the
+    # resolvable review-thread authority immediately before its caller
+    # decides. A comment landing after this REST read shares the existing
+    # post-thread-read exposure; the server ruleset and post-merge quiet
+    # watch already cover that residual class for thread comments.
     threads = fetch_threads(pr)
     for thread in threads:
         thread.classification = classify(thread)
@@ -175,7 +181,6 @@ def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
     counts = {name: 0 for name in CLASSES}
     for thread in threads:
         counts[thread.classification] += 1
-    finding_comments = fetch_finding_comments(pr)
     report(finding_comments)
     comment_danger = sum(
         comment.classification == "DANGER" for comment in finding_comments
