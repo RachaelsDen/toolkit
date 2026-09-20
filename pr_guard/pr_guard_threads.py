@@ -50,6 +50,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
     pullRequest(number: $number) {{
       updatedAt
       reviewThreads(first: {PAGE_SIZE}, after: $cursor) @include(if: $fetchThreads) {{
+        totalCount
         pageInfo {{ endCursor hasNextPage }}
         nodes {{
           id
@@ -60,6 +61,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
         }}
       }}
       comments(first: {PAGE_SIZE}, after: $ccursor) @include(if: $fetchComments) {{
+        totalCount
         pageInfo {{ endCursor hasNextPage }}
         nodes {{ databaseId author {{ login __typename }} body createdAt updatedAt }}
       }}
@@ -125,7 +127,7 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_thread_snapshot import (
         SNAPSHOT_ATTEMPTS,
         connections_match,
-        pull_request_updated_at,
+        mutation_identity,
     )
 
     for _ in range(SNAPSHOT_ATTEMPTS):
@@ -135,10 +137,8 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
         ccursor: str | None = None
         fetch_threads_page = True
         fetch_comments_page = True
-        page_count = 0
-        initial_updated_at = ""
+        initial_sentinel: tuple[str, int, int] | None = None
         while fetch_threads_page or fetch_comments_page:
-            page_count += 1
             data = gh_graphql(
                 THREADS_QUERY,
                 {
@@ -154,8 +154,12 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
             root = (data.get("repository") or {}).get("pullRequest")
             if root is None:
                 die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-            if page_count == 1:
-                initial_updated_at = root["updatedAt"]
+            if initial_sentinel is None:
+                initial_sentinel = (
+                    root["updatedAt"],
+                    root["comments"]["totalCount"],
+                    root["reviewThreads"]["totalCount"],
+                )
             if fetch_threads_page:
                 conn = root["reviewThreads"]
                 for node in conn["nodes"]:
@@ -193,16 +197,16 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                     )
                 fetch_comments_page = conn["pageInfo"]["hasNextPage"]
                 ccursor = conn["pageInfo"]["endCursor"]
-        # Thread 4056828167 (supersedes the prior rounds' per-page bracket
-        # reasoning; those comments remain as provenance): the sentinel closes every
-        # during-the-walk window in O(1) — pagination, revalidation, and validation
-        # pages are all bracketed by the two sentinel reads.
-        current_matches = page_count == 1 or connections_match(
+        assert initial_sentinel is not None
+        initial_identity = mutation_identity(*initial_sentinel, comments, threads)
+        current_matches, current_identity = connections_match(
             pr, gh_graphql, threads, comments
         )
-        if current_matches and initial_updated_at == pull_request_updated_at(
-            pr, gh_graphql
-        ):
+        # Thread 4056905983: this bracket detects additions even when GitHub's
+        # second-resolution updatedAt is unchanged. A same-second edit to an
+        # existing node is still API-indistinguishable; that documented-open
+        # residue remains backstopped by the post-merge quiet watch and server ruleset.
+        if current_matches and initial_identity == current_identity:
             return threads, comments
     die(
         f"PR #{pr} changed during snapshot collection {SNAPSHOT_ATTEMPTS} times; "

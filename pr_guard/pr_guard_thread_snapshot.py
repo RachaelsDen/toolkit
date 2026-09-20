@@ -12,22 +12,15 @@ if TYPE_CHECKING:
 
 PAGE_SIZE = 100
 SNAPSHOT_ATTEMPTS: Final = 3
-
-PULL_REQUEST_UPDATED_AT_QUERY = """
-query($owner: String!, $name: String!, $number: Int!) {
-  repository(owner: $owner, name: $name) {
-    pullRequest(number: $number) {
-      updatedAt
-    }
-  }
-}
-"""
+MutationIdentity = tuple[str, int, int, int | None, int | None]
 
 REVISION_QUERY = f"""
 query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor: String, $fetchThreads: Boolean!, $fetchComments: Boolean!) {{
   repository(owner: $owner, name: $name) {{
     pullRequest(number: $number) {{
+      updatedAt
       reviewThreads(first: {PAGE_SIZE}, after: $cursor) @include(if: $fetchThreads) {{
+        totalCount
         pageInfo {{ endCursor hasNextPage }}
         nodes {{
           id
@@ -37,6 +30,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
         }}
       }}
       comments(first: {PAGE_SIZE}, after: $ccursor) @include(if: $fetchComments) {{
+        totalCount
         pageInfo {{ endCursor hasNextPage }}
         nodes {{ databaseId updatedAt }}
       }}
@@ -46,15 +40,20 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
 """
 
 
-def pull_request_updated_at(pr: int, graphql: Callable[[str, dict], dict]) -> str:
-    data = graphql(
-        PULL_REQUEST_UPDATED_AT_QUERY,
-        {"owner": REPO_OWNER, "name": REPO_NAME, "number": pr},
+def mutation_identity(
+    updated_at: str,
+    comment_total_count: int,
+    thread_total_count: int,
+    comments: list[IssueComment],
+    threads: list[Thread],
+) -> MutationIdentity:
+    return (
+        updated_at,
+        comment_total_count,
+        thread_total_count,
+        max((comment.id for comment in comments), default=None),
+        max((thread.last_id for thread in threads if thread.last_id is not None), default=None),
     )
-    root = (data.get("repository") or {}).get("pullRequest")
-    if root is None:
-        die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-    return root["updatedAt"]
 
 
 def connections_match(
@@ -62,7 +61,7 @@ def connections_match(
     graphql: Callable[[str, dict], dict],
     threads: list[Thread],
     comments: list[IssueComment],
-) -> bool:
+) -> tuple[bool, MutationIdentity]:
     held_threads = {
         (
             thread.node_id,
@@ -82,6 +81,11 @@ def connections_match(
     ccursor: str | None = None
     fetch_threads = True
     fetch_comments = True
+    current_updated_at = ""
+    current_comment_total_count = 0
+    current_thread_total_count = 0
+    current_max_comment_id: int | None = None
+    current_max_thread_comment_id: int | None = None
     while fetch_threads or fetch_comments:
         data = graphql(
             REVISION_QUERY,
@@ -98,18 +102,26 @@ def connections_match(
         root = (data.get("repository") or {}).get("pullRequest")
         if root is None:
             die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
+        current_updated_at = root["updatedAt"]
         if fetch_threads:
             thread_connection = root["reviewThreads"]
+            current_thread_total_count = thread_connection["totalCount"]
             for node in thread_connection["nodes"]:
                 last = node["last"]["nodes"]
                 last_comment = last[-1] if last else {}
                 author = last_comment.get("author") or {}
+                last_id = last_comment.get("databaseId")
+                if last_id is not None and (
+                    current_max_thread_comment_id is None
+                    or last_id > current_max_thread_comment_id
+                ):
+                    current_max_thread_comment_id = last_id
                 current_threads.add(
                     (
                         node["id"],
                         node["isResolved"],
                         node["isOutdated"],
-                        last_comment.get("databaseId"),
+                        last_id,
                         author.get("login"),
                         author.get("__typename"),
                         last_comment.get("body") or "",
@@ -119,10 +131,21 @@ def connections_match(
             cursor = thread_connection["pageInfo"]["endCursor"]
         if fetch_comments:
             comment_connection = root["comments"]
-            current_comments.update(
-                (node["databaseId"], node["updatedAt"])
-                for node in comment_connection["nodes"]
-            )
+            current_comment_total_count = comment_connection["totalCount"]
+            for node in comment_connection["nodes"]:
+                comment_id = node["databaseId"]
+                if current_max_comment_id is None or comment_id > current_max_comment_id:
+                    current_max_comment_id = comment_id
+                current_comments.add((comment_id, node["updatedAt"]))
             fetch_comments = comment_connection["pageInfo"]["hasNextPage"]
             ccursor = comment_connection["pageInfo"]["endCursor"]
-    return held_threads == current_threads and held_comments == current_comments
+    return (
+        held_threads == current_threads and held_comments == current_comments,
+        (
+            current_updated_at,
+            current_comment_total_count,
+            current_thread_total_count,
+            current_max_comment_id,
+            current_max_thread_comment_id,
+        ),
+    )

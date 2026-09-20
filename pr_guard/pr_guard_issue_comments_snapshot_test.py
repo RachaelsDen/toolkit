@@ -135,10 +135,12 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "pullRequest": {
                     "updatedAt": "2026-09-20T10:00:00Z",
                     "reviewThreads": {
+                        "totalCount": 1,
                         "pageInfo": {"endCursor": None, "hasNextPage": False},
                         "nodes": [{"id": "thread", "isResolved": True, "isOutdated": False, "head": {"nodes": [{"databaseId": 10}]}, "last": {"nodes": [{"databaseId": 11, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed."}]}}],
                     },
                     "comments": {
+                        "totalCount": 1,
                         "pageInfo": {"endCursor": None, "hasNextPage": False},
                         "nodes": [{"databaseId": 12, "author": {"login": "chatgpt-codex-connector[bot]", "__typename": "Bot"}, "body": "P1 Badge", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}],
                     },
@@ -165,8 +167,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"pageInfo": {"endCursor": "comment-next", "hasNextPage": True}, "nodes": []},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 0, "pageInfo": {"endCursor": "comment-next", "hasNextPage": True}, "nodes": []},
                     }
                 }
             },
@@ -174,7 +176,7 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 0, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
             },
@@ -182,8 +184,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 0, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
             },
@@ -210,8 +212,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-next", "hasNextPage": True}, "nodes": []},
-                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}]},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-next", "hasNextPage": True}, "nodes": []},
+                        "comments": {"totalCount": 1, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}]},
                     }
                 }
             },
@@ -219,7 +221,7 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
                     }
                 }
             },
@@ -227,8 +229,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
                     }
                 }
             },
@@ -236,8 +238,17 @@ class CombinedSnapshotTests(unittest.TestCase):
                 "repository": {
                     "pullRequest": {
                         "updatedAt": "2026-09-20T10:00:00Z",
-                        "reviewThreads": {"pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
-                        "comments": {"pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "author": {"login": "chatgpt-codex-connector", "__typename": "Bot"}, "body": "P1 Badge", "createdAt": "2026-09-20T10:02:00Z", "updatedAt": "2026-09-20T10:02:00Z"}]},
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "author": {"login": "chatgpt-codex-connector", "__typename": "Bot"}, "body": "P1 Badge", "createdAt": "2026-09-20T10:02:00Z", "updatedAt": "2026-09-20T10:02:00Z"}]},
+                    }
+                }
+            },
+            {
+                "repository": {
+                    "pullRequest": {
+                        "updatedAt": "2026-09-20T10:00:00Z",
+                        "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": "thread-end", "hasNextPage": False}, "nodes": []},
+                        "comments": {"totalCount": 2, "pageInfo": {"endCursor": "comment-end", "hasNextPage": False}, "nodes": [{"databaseId": 1, "updatedAt": "2026-09-20T10:00:00Z"}, {"databaseId": 2, "updatedAt": "2026-09-20T10:02:00Z"}]},
                     }
                 }
             },
@@ -245,8 +256,6 @@ class CombinedSnapshotTests(unittest.TestCase):
 
         def fake_graphql(query, variables):
             calls.append((query, variables))
-            if "fetchThreads" not in variables:
-                return {"repository": {"pullRequest": {"updatedAt": "2026-09-20T10:00:00Z"}}}
             return next(responses)
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
