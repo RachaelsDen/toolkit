@@ -3,7 +3,7 @@
 A review-loop guard for GitHub pull requests reviewed by a codex-style
 review bot (e.g. `chatgpt-codex-connector[bot]`). It closes the gap
 between "the bot looked at the PR" and "every finding was answered by a
-human": review-thread state — never vibes, never a bare green check — is
+human": review-thread and finding-badged issue-comment state — never vibes, never a bare green check — is
 the merge authority, and the merge request itself is dispatched in the
 same process as the final thread survey.
 
@@ -61,8 +61,9 @@ pr-guard [--repo OWNER/NAME] harden     <pr>
 ```
 
 - **survey <pr>** — print every review thread's classification
-  (`resolved` / `receipted` / `DANGER`), a summary count line, and the
-  BOT REACTION line. A report, not a gate: always exits 0.
+  (`resolved` / `receipted` / `DANGER`), bot-authored finding-badged
+  issue comments, a summary count line, and the BOT REACTION line. A
+  report, not a gate: always exits 0.
 - **wait <pr>** — poll ONLY the review bot's PR reaction until a
   terminal state or the timeout (default 600 s). Exit 0 = a watched
   THUMBS_UP; 3 = findings (EYES -> NONE confirmed); 1 = timeout;
@@ -77,8 +78,9 @@ pr-guard [--repo OWNER/NAME] harden     <pr>
 - **resolve <pr>** — after receipts land, resolve ONLY receipted
   threads, re-verifying each immediately before and after its
   mutation; refuses while any DANGER thread remains.
-- **pre-merge <pr>** — the gate: no DANGER thread, head/base unchanged
-  across the survey, and an ACTIVE server-side ruleset requiring
+- **pre-merge <pr>** — the gate: no DANGER thread or finding-badged
+  issue comment, head/base unchanged across the survey, and an ACTIVE
+  server-side ruleset requiring
   review-thread resolution. CLEAN names the exact guarded merge
   command.
 - **merge <pr> <head-sha> <base>** — the guarded merge act: re-runs the
