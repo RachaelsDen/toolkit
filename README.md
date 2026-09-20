@@ -64,10 +64,13 @@ pr-guard [--repo OWNER/NAME] harden     <pr>
   (`resolved` / `receipted` / `DANGER`), bot-authored finding-badged
   issue comments, a summary count line, and the BOT REACTION line. A
   report, not a gate: always exits 0.
-- **wait <pr>** — poll ONLY the review bot's PR reaction until a
-  terminal state or the timeout (default 600 s). Exit 0 = a watched
-  THUMBS_UP; 3 = findings (EYES -> NONE confirmed); 1 = timeout;
-  2 = usage. The reaction never authorizes a merge by itself.
+- **wait <pr>** — take one bannerless thread-authority survey, then
+  poll the review bot's PR reaction until a terminal state or the
+  timeout (default 600 s). Exit 3 = pre-existing DANGER, DANGER at
+  timeout, or EYES -> NONE confirmed; 1 = timeout after a clean final
+  survey; 2 = usage. Exit 0 remains a watched THUMBS_UP only. A clean
+  thread snapshot never passes the wait because absence of DANGER is
+  not reaction evidence. The reaction never authorizes a merge by itself.
   `--accept-standing` is the opt-in fast path for already-passed
   PRs: a standing, DONE-classified THUMBS_UP whose +1 postdates every
   known request/trigger boundary exits 0 immediately, bypassing the
@@ -102,6 +105,10 @@ The review bot reacts ON the PR itself:
 The bot removes its EYES at round end: `+1` when it passed, NOTHING when
 it found feedback — so a verified EYES -> NONE transition that persists
 through the next probe means FINDINGS (exit 3: fix, receipt, re-wait).
+`wait` also exits 3 before polling when its opening bannerless thread
+survey finds DANGER, and after a reaction timeout when its final
+bannerless survey finds DANGER. A clean survey does not exit 0: only
+reaction evidence (or the explicit opt-in below) does.
 A cold NONE (no EYES variant ever observed) lasting >= 10 s prints the
 `@codex review` trigger HINT exactly once — the bot may have failed to
 start; the tool never posts comments itself. The reaction is the cheap
@@ -118,8 +125,8 @@ The package deliberately ships its own test modules — they are the
 tool's hardening record (see below). Run the full suite from a checkout:
 
 ```sh
-python3 -m unittest pr_guard.pr_guard_test        # aggregate: 673 tests
-python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 673
+python3 -m unittest pr_guard.pr_guard_test        # aggregate: 677 tests
+python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 677
 ```
 
 Both loader routes must report the same count with zero failures — the
