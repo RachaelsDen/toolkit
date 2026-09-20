@@ -119,8 +119,8 @@ The package deliberately ships its own test modules — they are the
 tool's hardening record (see below). Run the full suite from a checkout:
 
 ```sh
-python3 -m unittest pr_guard.pr_guard_test        # aggregate: 603 tests
-python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 603
+python3 -m unittest pr_guard.pr_guard_test        # aggregate: 620 tests
+python3 -m unittest discover -s . -t . -p "pr_guard*_test.py"   # discovery: the same 620
 ```
 
 Both loader routes must report the same count with zero failures — the
