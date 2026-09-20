@@ -108,6 +108,7 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
                 )
             )
             and not comment_is_clean_summary(reply)
+            and (not comment_is_bot(reply) or FINDING_BADGE.search(reply.body) is None)
             and (
                 comment_is_bot(reply)
                 or (

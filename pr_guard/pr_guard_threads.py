@@ -57,7 +57,7 @@ query($owner: String!, $name: String!, $number: Int!, $cursor: String, $ccursor:
           isResolved
           isOutdated
           head: comments(first: 1) {{ nodes {{ databaseId }} }}
-          last: comments(last: 1) {{ nodes {{ databaseId author {{ login __typename }} body }} }}
+          last: comments(last: 1) {{ nodes {{ databaseId updatedAt author {{ login __typename }} body }} }}
         }}
       }}
       comments(first: {PAGE_SIZE}, after: $ccursor) @include(if: $fetchComments) {{
@@ -128,20 +128,18 @@ def gh_graphql(query: str, variables: dict) -> dict:
 
 def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
     from .pr_guard_issue_comments import IssueComment
-    from .pr_guard_thread_snapshot import (
-        SNAPSHOT_ATTEMPTS,
-        identity_from_root,
-        read_identity,
-    )
+    from .pr_guard_thread_snapshot import SNAPSHOT_ATTEMPTS, comment_identity, read_identity, thread_identity
 
     for _ in range(SNAPSHOT_ATTEMPTS):
+        initial_identity, _, _ = read_identity(pr, gh_graphql)
         threads: list[Thread] = []
         comments: list[IssueComment] = []
+        held_threads: list[tuple] = []
+        held_comments: list[tuple] = []
         cursor: str | None = None
         ccursor: str | None = None
         fetch_threads_page = True
         fetch_comments_page = True
-        initial_identity: tuple | None = None
         while fetch_threads_page or fetch_comments_page:
             data = gh_graphql(
                 THREADS_QUERY,
@@ -158,11 +156,10 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
             root = (data.get("repository") or {}).get("pullRequest")
             if root is None:
                 die(f"PR #{pr} not found in {REPO_OWNER}/{REPO_NAME}")
-            if initial_identity is None:
-                initial_identity = identity_from_root(root)
             if fetch_threads_page:
                 conn = root["reviewThreads"]
                 for node in conn["nodes"]:
+                    held_threads.append(thread_identity(node))
                     head = node["head"]["nodes"]
                     last = node["last"]["nodes"]
                     last_comment = last[-1] if last else {}
@@ -184,6 +181,7 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
             if fetch_comments_page:
                 conn = root["comments"]
                 for node in conn["nodes"]:
+                    held_comments.append(comment_identity(node))
                     author = node.get("author") or {}
                     comments.append(
                         IssueComment(
@@ -197,13 +195,14 @@ def fetch_threads(pr: int) -> tuple[list[Thread], list[IssueComment]]:
                     )
                 fetch_comments_page = conn["pageInfo"]["hasNextPage"]
                 ccursor = conn["pageInfo"]["endCursor"]
-        assert initial_identity is not None
-        current_identity = read_identity(pr, gh_graphql)
-        # Thread 4056905983: this bracket detects additions even when GitHub's
-        # second-resolution updatedAt is unchanged. A same-second edit to an
-        # existing node is still API-indistinguishable; that documented-open
-        # residue remains backstopped by the post-merge quiet watch and server ruleset.
-        if initial_identity == current_identity:
+        current_identity, current_threads, current_comments = read_identity(pr, gh_graphql, len(held_threads), len(held_comments))
+        # This dedicated bracket detects held-node additions, removals, and edits.
+        # Same-second edits whose updatedAt remains byte-equal are the documented-open class.
+        if (
+            initial_identity == current_identity
+            and set(held_threads) == current_threads
+            and set(held_comments) == current_comments
+        ):
             return threads, comments
     die(
         f"PR #{pr} changed during snapshot collection {SNAPSHOT_ATTEMPTS} times; "
@@ -267,7 +266,7 @@ def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
     # OPENING survey), where it delays no dispatch and its output has
     # a human reader.
     if reaction:
-        reaction_banner(pr, [t.label for t in threads])
+        reaction_banner(pr, [thread.label for thread in threads], *([[comment.label for comment in finding_comments]] if finding_comments else []))
     return [*threads, *finding_comments]
 
 

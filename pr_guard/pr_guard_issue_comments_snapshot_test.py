@@ -22,6 +22,14 @@ def with_identity(payload):
     root = payload["repository"]["pullRequest"]
     root["lastComment"] = {"nodes": root.get("comments", {}).get("nodes", [])[-1:]}
     root["lastThread"] = {"nodes": root.get("reviewThreads", {}).get("nodes", [])[-1:]}
+    root["heldComments"] = {
+        "pageInfo": {"startCursor": None, "hasPreviousPage": False},
+        "nodes": root.get("comments", {}).get("nodes", [])[-100:],
+    }
+    root["heldThreads"] = {
+        "pageInfo": {"startCursor": None, "hasPreviousPage": False},
+        "nodes": root.get("reviewThreads", {}).get("nodes", [])[-100:],
+    }
     return payload
 
 
@@ -37,6 +45,22 @@ class FindingReceiptTests(unittest.TestCase):
             ]
         )
         self.assertEqual(findings[0].classification, "DANGER")
+
+    def test_badged_finding_starts_an_independent_reply_stream(self):
+        # Given: finding 1 is receipted, then finding 3 is posted and receipted.
+        # When: findings are classified. Then: neither badge reopens the other.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-20T10:00:00Z", "P1 Badge", author_type="Bot"),
+                comment(2, "RachaelsDen", "2026-09-20T10:01:00Z", "Fixed comment=1."),
+                comment(3, "chatgpt-codex-connector", "2026-09-20T10:02:00Z", "P1 Badge", author_type="Bot"),
+                comment(4, "RachaelsDen", "2026-09-20T10:03:00Z", "Fixed comment=3."),
+            ]
+        )
+        self.assertEqual(
+            [(finding.id, finding.classification) for finding in findings],
+            [(1, "receipted"), (3, "receipted")],
+        )
 
     def test_latest_trusted_receipt_clears_bot_follow_up(self):
         # Given: a finding, receipt, bot follow-up, then newer receipt.
@@ -133,6 +157,29 @@ class FindingReceiptTests(unittest.TestCase):
 
 
 class CombinedSnapshotTests(unittest.TestCase):
+    def test_identity_query_uses_valid_count_pages_and_parses_live_shape(self):
+        # Given: GitHub's count connections require a positive page size.
+        # When: the dedicated identity query reads a live-shaped empty payload.
+        # Then: both counts use first: 1 and the snapshot parses.
+        from .pr_guard_thread_snapshot import IDENTITY_QUERY, identity_from_root
+
+        self.assertIn("reviewThreads(first: 1)", IDENTITY_QUERY)
+        self.assertIn("comments(first: 1)", IDENTITY_QUERY)
+        identity = identity_from_root(
+            with_identity(
+                {
+                    "repository": {
+                        "pullRequest": {
+                            "updatedAt": "2026-09-20T10:00:00Z",
+                            "reviewThreads": {"totalCount": 0, "nodes": []},
+                            "comments": {"totalCount": 0, "nodes": []},
+                        }
+                    }
+                }
+            )["repository"]["pullRequest"]
+        )
+        self.assertEqual(identity[1:3], (0, 0))
+
     def test_fetches_threads_and_comments_from_one_graphql_response(self):
         # Given: one GraphQL payload containing both PR connections.
         # When: fetched. Then: both lists come from one request.
@@ -163,7 +210,7 @@ class CombinedSnapshotTests(unittest.TestCase):
             threads, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual([thread.node_id for thread in threads], ["thread"])
         self.assertEqual([(item.id, item.author, item.author_type) for item in comments], [(12, "chatgpt-codex-connector[bot]", "Bot")])
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 3)
 
     def test_paginates_threads_and_comments_until_both_connections_finish(self):
         # Given: threads finish on page one while comments continue to page two.
@@ -201,20 +248,32 @@ class CombinedSnapshotTests(unittest.TestCase):
 
         def fake_graphql(query, variables):
             calls.append(variables)
+            if query != pr_guard_threads.THREADS_QUERY:
+                return with_identity(
+                    {
+                        "repository": {
+                            "pullRequest": {
+                                "updatedAt": "2026-09-20T10:00:00Z",
+                                "reviewThreads": {"totalCount": 0, "nodes": []},
+                                "comments": {"totalCount": 0, "nodes": []},
+                            }
+                        }
+                    }
+                )
             return with_identity(pages.pop(0))
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             threads, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual((threads, comments), ([], []))
-        self.assertEqual(calls[1]["ccursor"], "comment-next")
-        self.assertFalse(calls[1]["fetchThreads"])
-        self.assertTrue(calls[1]["fetchComments"])
+        self.assertEqual(calls[2]["ccursor"], "comment-next")
+        self.assertFalse(calls[2]["fetchThreads"])
+        self.assertTrue(calls[2]["fetchComments"])
 
     def test_revalidates_comments_after_threads_continue_past_them(self):
         # Given: comments finish before a second thread page and a finding lands.
         # When: the combined snapshot completes. Then: revalidation refetches it.
         calls = []
-        responses = iter([
+        responses = [
             {
                 "repository": {
                     "pullRequest": {
@@ -259,19 +318,69 @@ class CombinedSnapshotTests(unittest.TestCase):
                     }
                 }
             },
-        ])
+        ]
+        initial, continuation, changed, retry, stable = responses
+        identities = iter([initial, changed, retry, stable])
+        walks = iter([initial, continuation, retry])
 
         def fake_graphql(query, variables):
             calls.append((query, variables))
-            return with_identity(next(responses))
+            return with_identity(
+                next(walks) if query == pr_guard_threads.THREADS_QUERY else next(identities)
+            )
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual([item.id for item in comments], [1, 2])
-        self.assertFalse(calls[1][1]["fetchComments"])
+        self.assertFalse(calls[2][1]["fetchComments"])
         from .pr_guard_thread_snapshot import IDENTITY_QUERY
 
-        self.assertEqual(calls[2][0], IDENTITY_QUERY)
+        self.assertEqual(calls[3][0], IDENTITY_QUERY)
+
+    def test_mid_list_comment_edit_retries_the_entire_snapshot(self):
+        # Given: comment 1 is edited during a two-comment walk while tail 2 is stable.
+        # When: the post-walk identity re-lists held comments. Then: the walk retries.
+        calls = []
+
+        def payload(updated_at):
+            return with_identity(
+                {
+                    "repository": {
+                        "pullRequest": {
+                            "updatedAt": "2026-09-20T10:00:00Z",
+                            "reviewThreads": {"totalCount": 0, "pageInfo": {"endCursor": None, "hasNextPage": False}, "nodes": []},
+                            "comments": {
+                                "totalCount": 2,
+                                "pageInfo": {"endCursor": None, "hasNextPage": False},
+                                "nodes": [
+                                    {"databaseId": 1, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:00Z", "updatedAt": updated_at},
+                                    {"databaseId": 2, "author": {"login": "RachaelsDen", "__typename": "User"}, "body": "Fixed.", "createdAt": "2026-09-20T10:00:01Z", "updatedAt": "2026-09-20T10:00:01Z"},
+                                ],
+                            },
+                        }
+                    }
+                }
+            )
+
+        responses = iter(
+            [
+                payload("2026-09-20T10:00:00Z"),
+                payload("2026-09-20T10:00:00Z"),
+                payload("2026-09-20T10:01:00Z"),
+                payload("2026-09-20T10:01:00Z"),
+                payload("2026-09-20T10:01:00Z"),
+                payload("2026-09-20T10:01:00Z"),
+            ]
+        )
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return next(responses)
+
+        with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        self.assertEqual(comments[0].updated_at, "2026-09-20T10:01:00Z")
+        self.assertEqual(len(calls), 6)
 
 
 if __name__ == "__main__":
