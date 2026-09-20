@@ -38,6 +38,7 @@ from . import cli
 from . import pr_guard_common
 from . import pr_guard_reaction
 from . import pr_guard_reaction_probe
+from . import pr_guard_wait_authority
 from .pr_guard_merge_fixtures import FakeClock
 
 HEAD_B = "c05574000000000000000000000000000000b"
@@ -227,9 +228,9 @@ class AcceptStandingArgvTests(unittest.TestCase):
         ):
             with self.subTest(argv=argv):
                 with mock.patch.object(
-                    cli, "survey", return_value=[]
+                    pr_guard_wait_authority, "survey", return_value=[]
                 ) as authority, mock.patch.object(
-                    cli, "wait_reaction", return_value=0
+                    pr_guard_wait_authority, "wait_reaction", return_value=0
                 ) as fake:
                     self.assertEqual(cli.main(argv), 0)
                 fake.assert_called_once_with(*expected)
@@ -242,9 +243,9 @@ class AcceptStandingArgvTests(unittest.TestCase):
         # call is the historic two-arg (pr, timeout) shape — the
         # default path is byte-identical (zero repins).
         with mock.patch.object(
-            cli, "survey", return_value=[]
+            pr_guard_wait_authority, "survey", return_value=[]
         ) as authority, mock.patch.object(
-            cli, "wait_reaction", return_value=0
+            pr_guard_wait_authority, "wait_reaction", return_value=0
         ) as fake:
             self.assertEqual(cli.main(["pr_guard.py", "wait", "48"]), 0)
         fake.assert_called_once_with(48, 600)

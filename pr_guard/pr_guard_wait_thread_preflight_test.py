@@ -12,6 +12,7 @@ from unittest import mock
 
 from . import cli
 from . import pr_guard_threads
+from . import pr_guard_wait_authority
 from .pr_guard_classify import Thread
 from .pr_guard_merge_fixtures import thread
 
@@ -41,7 +42,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
-            cli, "wait_reaction", side_effect=reaction_probe
+            pr_guard_wait_authority, "wait_reaction", side_effect=reaction_probe
         ), redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48"])
         self.assertEqual(code, 3)
@@ -78,7 +79,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
-            cli, "wait_reaction", side_effect=reaction_timeout
+            pr_guard_wait_authority, "wait_reaction", side_effect=reaction_timeout
         ), redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "10"])
         self.assertEqual(code, 3)
@@ -99,7 +100,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
-            cli, "wait_reaction", return_value=1
+            pr_guard_wait_authority, "wait_reaction", return_value=1
         ) as wait:
             code = cli.main(["pr_guard.py", "wait", "48"])
         self.assertEqual(code, 1)
@@ -115,7 +116,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ) as fetch, mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
-            cli, "wait_reaction", return_value=0
+            pr_guard_wait_authority, "wait_reaction", return_value=0
         ):
             code = cli.main(["pr_guard.py", "wait", "48"])
         self.assertEqual(code, 0)
@@ -136,7 +137,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         with mock.patch.object(
             pr_guard_threads.subprocess, "run", side_effect=stalled_run
         ), mock.patch.object(
-            cli, "wait_reaction"
+            pr_guard_wait_authority, "wait_reaction"
         ) as reaction_probe, redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "12"])
         self.assertEqual(code, 1)
@@ -170,7 +171,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads.subprocess, "run", side_effect=stalled_run
         ), mock.patch.object(
-            cli, "wait_reaction", return_value=1
+            pr_guard_wait_authority, "wait_reaction", return_value=1
         ), redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "12"])
         self.assertEqual(code, 1)
@@ -208,9 +209,9 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ), mock.patch.object(
-            cli, "wait_reaction", return_value=1
+            pr_guard_wait_authority, "wait_reaction", return_value=1
         ), mock.patch.object(
-            cli.time, "monotonic", side_effect=fake_monotonic
+            pr_guard_wait_authority.time, "monotonic", side_effect=fake_monotonic
         ), redirect_stdout(out):
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "5"])
         self.assertEqual(code, 3)
@@ -226,7 +227,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ), mock.patch.object(
-            cli, "wait_reaction", return_value=1
+            pr_guard_wait_authority, "wait_reaction", return_value=1
         ) as mock_wait:
             code = cli.main(["pr_guard.py", "wait", "48", "--timeout-secs", "5"])
         self.assertEqual(code, 1)

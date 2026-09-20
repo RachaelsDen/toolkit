@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from .pr_guard_classify import BOT_AUTHORS, CLASSES, Thread, classify
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
+from .pr_guard_fetch_budget import bounded_graphql, gh_graphql
 from .pr_guard_reaction_boundaries import probe_timeout_budget
 # PR #49 round 11 (thread 3868979509's split): the banner lives in
 # the sibling banner module now (reaction.py hit the 250 pure-LOC
@@ -36,8 +37,10 @@ __all__ = [
     "BOT_AUTHORS",
     "CLASSES",
     "Thread",
+    "bounded_graphql",
     "classify",
     "fetch_threads",
+    "gh_graphql",
     "refetch_thread",
     "resolve_thread",
     "survey",
@@ -111,26 +114,6 @@ mutation($threadId: ID!) {
 """
 
 
-def gh_graphql(
-    query: str, variables: dict, timeout_secs: float | None = None
-) -> dict:
-    payload = json.dumps({"query": query, "variables": variables})
-    proc = subprocess.run(
-        ["gh", "api", "graphql", "--input", "-"],
-        input=payload,
-        capture_output=True,
-        text=True,
-        env=gh_env(),
-        timeout=timeout_secs,
-    )
-    if proc.returncode != 0:
-        die(f"gh api exited {proc.returncode}: {proc.stderr.strip()}")
-    body = json.loads(proc.stdout)
-    if body.get("errors"):
-        die(f"GraphQL errors: {json.dumps(body['errors'])}")
-    return body["data"]
-
-
 def fetch_threads(
     pr: int, timeout_secs: float | None = None
 ) -> tuple[list[Thread], list[IssueComment]]:
@@ -140,14 +123,7 @@ def fetch_threads(
     deadline = None if timeout_secs is None else time.monotonic() + timeout_secs
 
     def graphql(query: str, variables: dict) -> dict:
-        if deadline is None:
-            return gh_graphql(query, variables)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise subprocess.TimeoutExpired(
-                ["gh", "api", "graphql"], probe_timeout_budget(remaining)
-            )
-        return gh_graphql(query, variables, probe_timeout_budget(remaining))
+        return bounded_graphql(query, variables, deadline, fetch_fn=gh_graphql)
 
     for _ in range(SNAPSHOT_ATTEMPTS):
         initial_identity, _, _, _ = read_identity(pr, graphql)
