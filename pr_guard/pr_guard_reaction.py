@@ -489,13 +489,10 @@ def bot_reaction_reading(
     head's push classifies EYES_STALE, and an unreadable push reads
     EYES_UNVERIFIED: neither ARMS the transition latch or refreshes
     the observed-activity watermark (see eyes_round_state in the
-    latch module). Thread 3869259813 (round 13, P1): the EYES also
-    binds the FORMAL codex request (round_bounds' separate third
-    element) — a re-request on an unchanged head stales the
-    preceding round's EYES — but NEVER the composite marker's
-    post-EYES comment half (a request-less round's only marker
-    lands after its own EYES); the +1 completion still carries the
-    full both-facts binding.
+    latch module). A request or trigger after a push-started EYES
+    leaves it active; the wait resets on the newly observed boundary
+    and its completion evidence binds the subsequent verdict. The
+    +1 still binds post-review engagement markers.
     """
     deadline = None if timeout_secs is None else time.monotonic() + timeout_secs
     # Thread 3868979515 (round 11, P2): the shared deadline — each
@@ -645,7 +642,16 @@ def bot_reaction_reading(
     # (threads 3872194007/23): the three round-20 facts ride the
     # Reading attrs (the subclass keeps every legacy plain-tuple
     # mock byte-identical).
-    return _reading(thumbs_up_round_state(created, pushed, marker), identity, marker)
+    return _reading(
+        thumbs_up_round_state(
+            created,
+            pushed,
+            marker,
+            max(request.partition("|")[0], trigger.partition("|")[0]),
+        ),
+        identity,
+        marker,
+    )
 
 
 def bot_review_reaction(pr: int, timeout_secs: float | None = None) -> str:
