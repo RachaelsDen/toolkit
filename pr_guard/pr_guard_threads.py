@@ -13,8 +13,11 @@ summary — the review bot's PR reaction is the DONE/ACTIVE signal
 fails OPEN so an unreadable reaction can never block the gate.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
+from typing import TYPE_CHECKING
 
 from .pr_guard_classify import BOT_AUTHORS, CLASSES, Thread, classify
 from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
@@ -23,6 +26,9 @@ from .pr_guard_common import REPO_NAME, REPO_OWNER, die, gh_env
 # ceiling); imports still flow ONE way — threads FROM banner FROM
 # reaction/latch.
 from .pr_guard_reaction_banner import reaction_banner
+
+if TYPE_CHECKING:
+    from .pr_guard_issue_comments import FindingComment
 
 __all__ = [
     "BOT_AUTHORS",
@@ -153,7 +159,9 @@ def excerpt(body: str, limit: int = 72) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
 
 
-def survey(pr: int, reaction: bool = True) -> list[Thread]:
+def survey(pr: int, reaction: bool = True) -> list[Thread | FindingComment]:
+    from .pr_guard_issue_comments import fetch_finding_comments, report
+
     threads = fetch_threads(pr)
     for thread in threads:
         thread.classification = classify(thread)
@@ -167,9 +175,15 @@ def survey(pr: int, reaction: bool = True) -> list[Thread]:
     counts = {name: 0 for name in CLASSES}
     for thread in threads:
         counts[thread.classification] += 1
+    finding_comments = fetch_finding_comments(pr)
+    report(finding_comments)
+    comment_danger = sum(
+        comment.classification == "DANGER" for comment in finding_comments
+    )
     print(
         f"SUMMARY pr={pr} total={len(threads)}"
         + "".join(f" {name}={counts[name]}" for name in CLASSES)
+        + f" comment-findings={comment_danger}"
     )
     # PR #48 (vault note 'Unified Realms/Notes/Codex Review Bot
     # Reaction Signal.md'): the bot's PR reaction beside the summary —
@@ -195,7 +209,7 @@ def survey(pr: int, reaction: bool = True) -> list[Thread]:
     # a human reader.
     if reaction:
         reaction_banner(pr, [t.label for t in threads])
-    return threads
+    return [*threads, *finding_comments]
 
 
 def resolve_thread(thread: Thread) -> bool:
