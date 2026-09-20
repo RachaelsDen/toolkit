@@ -55,6 +55,8 @@ def page(
     updated_at="2026-09-20T10:00:00Z",
     thread_total_count=None,
     comment_total_count=None,
+    last_comment=None,
+    last_thread=None,
 ):
     connections = {}
     if threads is not None:
@@ -69,6 +71,14 @@ def page(
             "pageInfo": {"endCursor": "comment-next", "hasNextPage": comments_more},
             "nodes": comments,
         }
+    latest_comment = [last_comment] if last_comment is not None else (comments or [])[-1:]
+    latest_thread = [last_thread] if last_thread is not None else (threads or [])[-1:]
+    connections["lastComment"] = {
+        "nodes": [{"databaseId": node["databaseId"]} for node in latest_comment]
+    }
+    connections["lastThread"] = {
+        "nodes": latest_thread
+    }
     connections["updatedAt"] = updated_at
     return {"repository": {"pullRequest": connections}}
 
@@ -121,6 +131,80 @@ class SnapshotRevalidationTests(unittest.TestCase):
             threads, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual(([item.node_id for item in threads], comments), (["thread"], []))
         self.assertEqual(len(calls), 2)
+
+    def test_comment_added_while_later_thread_page_is_in_flight_restarts_snapshot(self):
+        # Given: comments finish while threads paginate, then a same-second
+        # bot finding lands before the final identity read.
+        # When: the final dual-connection identity differs. Then: retry
+        # returns the finding instead of accepting the stale walk.
+        calls = []
+        finding = comment_node(2, "2026-09-20T10:00:00Z")
+        finding["author"] = {
+            "login": "chatgpt-codex-connector",
+            "__typename": "Bot",
+        }
+        finding["body"] = "P1 Badge: still broken"
+        responses = iter(
+            [
+                page(
+                    [thread_node()],
+                    [comment_node(1, "2026-09-20T10:00:00Z")],
+                    threads_more=True,
+                ),
+                page([thread_node()], None),
+                {
+                    "repository": {
+                        "pullRequest": {
+                            "updatedAt": "2026-09-20T10:00:00Z",
+                            "comments": {
+                                "totalCount": 2,
+                                "nodes": [{"databaseId": 2}],
+                            },
+                            "lastComment": {"nodes": [{"databaseId": 2}]},
+                            "reviewThreads": {
+                                "totalCount": 1,
+                                "nodes": [thread_node()],
+                            },
+                            "lastThread": {"nodes": [thread_node()]},
+                        }
+                    }
+                },
+                page([thread_node()], [comment_node(1, "2026-09-20T10:00:00Z"), finding]),
+                {
+                    "repository": {
+                        "pullRequest": {
+                            "updatedAt": "2026-09-20T10:00:00Z",
+                            "comments": {
+                                "totalCount": 2,
+                                "nodes": [{"databaseId": 2}],
+                            },
+                            "lastComment": {"nodes": [{"databaseId": 2}]},
+                            "reviewThreads": {
+                                "totalCount": 1,
+                                "nodes": [thread_node()],
+                            },
+                            "lastThread": {"nodes": [thread_node()]},
+                        }
+                    }
+                },
+            ]
+        )
+
+        def fake_graphql(query, variables):
+            calls.append((query, variables))
+            return next(responses)
+
+        with mock.patch.object(
+            pr_guard_threads, "gh_graphql", side_effect=fake_graphql
+        ):
+            _, comments = pr_guard_threads.fetch_threads(68)
+        findings = pr_guard_issue_comments.classify_finding_comments(comments)
+        self.assertEqual([item.classification for item in findings], ["DANGER"])
+        self.assertEqual(len(calls), 5)
+        from .pr_guard_thread_snapshot import IDENTITY_QUERY
+
+        self.assertEqual(calls[2][0], IDENTITY_QUERY)
+        self.assertEqual(calls[2][1], {"owner": "RachaelsDen", "name": "UR-lorebook", "number": 68})
 
     def test_thread_follow_up_during_comment_pagination_is_refetched(self):
         # Given: threads finish while comments paginate and a bot follows up.
@@ -177,6 +261,7 @@ class SnapshotRevalidationTests(unittest.TestCase):
                 [comment_node(1, "2026-09-20T10:00:00Z")],
                 comments_more=True,
                 comment_total_count=2,
+                last_comment=comment_node(2, "2026-09-20T10:01:00Z"),
             ),
             page(comments=[comment_node(2, "2026-09-20T10:01:00Z")]),
             page(

@@ -18,6 +18,13 @@ def comment(comment_id, author, created_at, body, updated_at=None, author_type="
     )
 
 
+def with_identity(payload):
+    root = payload["repository"]["pullRequest"]
+    root["lastComment"] = {"nodes": root.get("comments", {}).get("nodes", [])[-1:]}
+    root["lastThread"] = {"nodes": root.get("reviewThreads", {}).get("nodes", [])[-1:]}
+    return payload
+
+
 class FindingReceiptTests(unittest.TestCase):
     def test_bot_follow_up_reopens_a_receipted_finding(self):
         # Given: a finding, trusted receipt, then bot follow-up. When: classified.
@@ -150,7 +157,7 @@ class CombinedSnapshotTests(unittest.TestCase):
 
         def fake_graphql(query, variables):
             calls.append((query, variables))
-            return payload
+            return with_identity(payload)
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             threads, comments = pr_guard_threads.fetch_threads(68)
@@ -194,7 +201,7 @@ class CombinedSnapshotTests(unittest.TestCase):
 
         def fake_graphql(query, variables):
             calls.append(variables)
-            return pages.pop(0)
+            return with_identity(pages.pop(0))
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             threads, comments = pr_guard_threads.fetch_threads(68)
@@ -256,15 +263,15 @@ class CombinedSnapshotTests(unittest.TestCase):
 
         def fake_graphql(query, variables):
             calls.append((query, variables))
-            return next(responses)
+            return with_identity(next(responses))
 
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual([item.id for item in comments], [1, 2])
         self.assertFalse(calls[1][1]["fetchComments"])
-        from .pr_guard_thread_snapshot import REVISION_QUERY
+        from .pr_guard_thread_snapshot import IDENTITY_QUERY
 
-        self.assertEqual(calls[2][0], REVISION_QUERY)
+        self.assertEqual(calls[2][0], IDENTITY_QUERY)
 
 
 if __name__ == "__main__":
