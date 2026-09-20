@@ -71,6 +71,20 @@ class FindingClassificationTests(unittest.TestCase):
         self.assertEqual([item.id for item in findings], [1, 2, 3, 5])
         self.assertTrue(all(item.classification == "DANGER" for item in findings))
 
+    def test_codex_login_normalization_matches_only_configured_bot(self):
+        # Given: GraphQL and REST Codex names, an unrelated bot, and a
+        # deleted actor. When: finding comments are classified. Then:
+        # only the two configured Codex identities become findings.
+        findings = pr_guard_issue_comments.classify_finding_comments(
+            [
+                comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+                comment(2, "chatgpt-codex-connector[bot]", "2026-09-19T10:01:00Z", "P1 Badge"),
+                comment(3, "dependabot[bot]", "2026-09-19T10:02:00Z", "P1 Badge"),
+                comment(4, None, "2026-09-19T10:03:00Z", "P1 Badge"),
+            ]
+        )
+        self.assertEqual([item.id for item in findings], [1, 2])
+
     def test_later_trusted_receipt_clears_finding(self):
         # Given: a bot finding followed by the configured maintainer.
         # When: classified. Then: the finding is receipted.
@@ -149,8 +163,54 @@ class FindingFetchTests(unittest.TestCase):
         )
         self.assertEqual(calls[0][1]["env"]["GH_HOST"], "github.com")
 
+    def test_fetch_ignores_comment_with_null_user(self):
+        # Given: a REST issue-comment payload whose actor was deleted.
+        # When: finding comments are fetched. Then: it is ignored without
+        # failing the scan.
+        pages = [
+            [
+                {
+                    "id": 1,
+                    "user": None,
+                    "created_at": "2026-09-19T10:00:00Z",
+                    "body": "P1 Badge",
+                }
+            ]
+        ]
+
+        def fake_run(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(pages), stderr="")
+
+        with mock.patch.object(
+            pr_guard_issue_comments.subprocess, "run", side_effect=fake_run
+        ):
+            findings = pr_guard_issue_comments.fetch_finding_comments(68)
+        self.assertEqual(findings, [])
+
 
 class SurveyAndGateTests(unittest.TestCase):
+    def test_gate_survey_fetches_comments_before_threads(self):
+        # Given: a bannerless gate survey whose fetchers record order.
+        # When: the survey runs. Then: review threads are the final
+        # authority read immediately before the decision.
+        calls = []
+
+        def fetch_comments(pr):
+            calls.append("comments")
+            return []
+
+        def fetch_threads(pr):
+            calls.append("threads")
+            return [resolved_thread()]
+
+        with mock.patch.object(
+            pr_guard_issue_comments, "fetch_finding_comments", side_effect=fetch_comments
+        ), mock.patch.object(
+            pr_guard_threads, "fetch_threads", side_effect=fetch_threads
+        ), redirect_stdout(io.StringIO()):
+            pr_guard_threads.survey(68, reaction=False)
+        self.assertEqual(calls, ["comments", "threads"])
+
     def test_survey_summary_includes_zero_comment_findings(self):
         # Given: a clean review-thread snapshot with no finding comments.
         # When: survey runs bannerless. Then: its stable summary reports zero.

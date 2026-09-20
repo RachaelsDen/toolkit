@@ -8,6 +8,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
+from typing import TypeGuard
 
 from .pr_guard_classify import BOT_AUTHORS
 from .pr_guard_common import RECEIPT_AUTHORS, REPO_NAME, REPO_OWNER, die, gh_env
@@ -18,6 +19,7 @@ __all__ = [
     "IssueComment",
     "classify_finding_comments",
     "fetch_finding_comments",
+    "login_is_bot",
     "report",
 ]
 
@@ -29,7 +31,7 @@ FINDING_BADGE = re.compile(
 @dataclass(frozen=True, slots=True)
 class IssueComment:
     id: int
-    author: str
+    author: str | None
     created_at: str
     body: str
 
@@ -47,11 +49,17 @@ class FindingComment:
         return f"comment={self.id}"
 
 
+def login_is_bot(login: str | None) -> TypeGuard[str]:
+    return login is not None and (
+        login in BOT_AUTHORS or login.removesuffix("[bot]") in BOT_AUTHORS
+    )
+
+
 def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComment]:
     ordered = sorted(comments, key=lambda item: (item.created_at, item.id))
     findings: list[FindingComment] = []
     for comment in ordered:
-        if comment.author not in BOT_AUTHORS or FINDING_BADGE.search(comment.body) is None:
+        if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
             continue
         classification = "DANGER"
         if any(
@@ -91,7 +99,7 @@ def fetch_finding_comments(pr: int) -> list[FindingComment]:
     comments = [
         IssueComment(
             id=int(item["id"]),
-            author=str(item["user"]["login"]),
+            author=(item.get("user") or {}).get("login"),
             created_at=str(item["created_at"]),
             body=str(item["body"]),
         )

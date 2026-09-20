@@ -164,7 +164,8 @@ from .pr_guard_common import REPO_NAME, REPO_OWNER, gh_env
 # Live-verified 2026-08-27: GraphQL renders the bot's author login
 # WITHOUT the "[bot]" suffix (latestReviews author{login} reads
 # "chatgpt-codex-connector") while REST reactions report it WITH the
-# suffix — the round marker filters on both forms.
+# suffix. Issue-comment scanning shares this distinction through
+# pr_guard_issue_comments.login_is_bot; the round marker filters both forms.
 REACTION_BOT = "chatgpt-codex-connector[bot]"
 GRAPHQL_BOT_LOGIN = REACTION_BOT.removesuffix("[bot]")
 BOT_LOGINS = frozenset({REACTION_BOT, GRAPHQL_BOT_LOGIN})
