@@ -36,7 +36,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         out = io.StringIO()
         reaction_probe = mock.Mock()
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[danger_thread()]
+            pr_guard_threads, "fetch_threads", return_value=([danger_thread()], [])
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
@@ -61,7 +61,11 @@ class WaitThreadPreflightTests(unittest.TestCase):
 
         def fetch_threads(pr):
             events.append("survey")
-            return [thread("10", "resolved")] if len(events) == 1 else [danger_thread()]
+            return (
+                ([thread("10", "resolved")], [])
+                if len(events) == 1
+                else ([danger_thread()], [])
+            )
 
         def reaction_timeout(pr, timeout_secs):
             events.append("wait")
@@ -90,7 +94,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         # Given: clean preflight and timeout snapshots. When: the
         # reaction wait times out. Then: wait keeps its timeout exit 1.
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[thread("10", "resolved")]
+            pr_guard_threads, "fetch_threads", return_value=([thread("10", "resolved")], [])
         ), mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
@@ -106,7 +110,7 @@ class WaitThreadPreflightTests(unittest.TestCase):
         # When: wait returns 0. Then: only the preflight survey runs;
         # no final authority read follows a reaction terminal result.
         with mock.patch.object(
-            pr_guard_threads, "fetch_threads", return_value=[thread("10", "resolved")]
+            pr_guard_threads, "fetch_threads", return_value=([thread("10", "resolved")], [])
         ) as fetch, mock.patch.object(
             pr_guard_threads, "reaction_banner"
         ) as banner, mock.patch.object(
