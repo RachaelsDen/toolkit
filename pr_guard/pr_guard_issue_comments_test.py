@@ -203,6 +203,30 @@ class FindingClassificationTests(unittest.TestCase):
         findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [bot_ref_3, receipt_3, bot_no_ref])
         self.assertEqual([(f.id, f.classification) for f in findings], [(1, "DANGER"), (3, "DANGER")])
 
+    def test_unmatched_reference_bot_follow_up_acts_as_global_follow_up(self):
+        # Given: findings 1+3 receipted, bot posts `Still broken; see #42` (no finding 42).
+        # When: classified. Then: both findings reopen (DANGER).
+        base_comments = [
+            comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+            comment(2, "RachaelsDen", "2026-09-19T10:01:00Z", "Fixed comment=1."),
+            comment(3, "chatgpt-codex-connector", "2026-09-19T10:02:00Z", "P2 Badge"),
+            comment(4, "RachaelsDen", "2026-09-19T10:03:00Z", "Fixed comment=3."),
+        ]
+        bot_unmatched_ref = comment(5, "chatgpt-codex-connector", "2026-09-19T10:04:00Z", "Still broken; see #42", author_type="Bot")
+        findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [bot_unmatched_ref])
+        self.assertEqual([(f.id, f.classification) for f in findings], [(1, "DANGER"), (3, "DANGER")])
+
+    def test_referencing_receipt_for_nonexistent_id_is_global_noop(self):
+        # Given: findings 1+3 open (DANGER), maintainer posts `Fixed #42.` (no finding 42).
+        # When: classified. Then: neither finding is cleared (both stay DANGER).
+        base_comments = [
+            comment(1, "chatgpt-codex-connector", "2026-09-19T10:00:00Z", "P1 Badge"),
+            comment(3, "chatgpt-codex-connector", "2026-09-19T10:02:00Z", "P2 Badge"),
+        ]
+        receipt_unmatched_ref = comment(5, "RachaelsDen", "2026-09-19T10:04:00Z", "Fixed #42.")
+        findings = pr_guard_issue_comments.classify_finding_comments(base_comments + [receipt_unmatched_ref])
+        self.assertEqual([(f.id, f.classification) for f in findings], [(1, "DANGER"), (3, "DANGER")])
+
 
 class SurveyAndGateTests(unittest.TestCase):
     def test_banner_names_issue_comment_findings_without_review_threads(self):

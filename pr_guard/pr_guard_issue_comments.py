@@ -31,19 +31,19 @@ ALL_FINDINGS_RECEIPT = re.compile(
     r"\breceipt(?::\s*all\s+findings|-all-findings)\b", re.IGNORECASE
 )
 FINDING_REF = re.compile(
-    r"\bcomment\s*(?:=\s*|\s+)\d+\b|#\d+\b", re.IGNORECASE
+    r"\bcomment\s*(?:=\s*|\s+)(\d+)\b|#(\d+)\b", re.IGNORECASE
 )
 
 
+def referenced_finding_ids(body: str) -> set[int]:
+    return {
+        int(m1 or m2)
+        for m1, m2 in FINDING_REF.findall(body)
+    }
+
+
 def comment_references_finding(body: str, finding_id: int) -> bool:
-    return (
-        re.search(
-            rf"\bcomment\s*(?:=\s*|\s+){finding_id}\b|#{finding_id}\b",
-            body,
-            re.IGNORECASE,
-        )
-        is not None
-    )
+    return finding_id in referenced_finding_ids(body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +106,11 @@ def comment_is_clean_summary(comment: IssueComment) -> bool:
 def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComment]:
     ordered = sorted(comments, key=comment_key)
     findings: list[FindingComment] = []
+    finding_ids = {
+        c.id
+        for c in ordered
+        if login_is_bot(c.author) and FINDING_BADGE.search(c.body) is not None
+    }
     for comment in ordered:
         if not login_is_bot(comment.author) or FINDING_BADGE.search(comment.body) is None:
             continue
@@ -137,8 +142,8 @@ def classify_finding_comments(comments: list[IssueComment]) -> list[FindingComme
                 (
                     comment_is_bot(reply)
                     and (
-                        FINDING_REF.search(reply.body) is None
-                        or comment_references_finding(reply.body, comment.id)
+                        not (referenced_finding_ids(reply.body) & finding_ids)
+                        or comment.id in (referenced_finding_ids(reply.body) & finding_ids)
                     )
                 )
                 or (
