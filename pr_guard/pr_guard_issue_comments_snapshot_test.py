@@ -438,6 +438,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page2_nodes, has_next=False),
                 build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
                 build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page2_nodes, has_next=False),
+                build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
+                build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page2_nodes, has_next=False),
                 build_payload("2026-09-20T10:01:00Z", all_nodes),
                 build_payload("2026-09-20T10:01:00Z", all_nodes),
                 build_payload("2026-09-20T10:01:00Z", all_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
@@ -454,7 +456,7 @@ class CombinedSnapshotTests(unittest.TestCase):
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual(len(comments), 101)
-        self.assertEqual(len(calls), 12)
+        self.assertEqual(len(calls), 14)
 
     def test_same_second_addition_in_final_validation_response_retries_snapshot(self):
         # Given: validation paginates over 101 held comments and a same-second comment addition
@@ -523,6 +525,8 @@ class CombinedSnapshotTests(unittest.TestCase):
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page2_nodes, has_next=False),
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page2_nodes + [node_102], has_next=False),
+                build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
+                build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page2_nodes + [node_102], has_next=False),
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes),
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes),
                 build_payload("2026-09-20T10:00:00Z", all_102_nodes, held_nodes=page1_nodes, has_next=True, start_cursor="c1"),
@@ -539,7 +543,7 @@ class CombinedSnapshotTests(unittest.TestCase):
         with mock.patch.object(pr_guard_threads, "gh_graphql", side_effect=fake_graphql):
             _, comments = pr_guard_threads.fetch_threads(68)
         self.assertEqual(len(comments), 102)
-        self.assertEqual(len(calls), 12)
+        self.assertEqual(len(calls), 14)
 
 
 if __name__ == "__main__":

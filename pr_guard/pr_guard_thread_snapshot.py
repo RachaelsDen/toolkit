@@ -95,7 +95,37 @@ def read_identity(
     graphql: Callable[[str, dict], dict],
     held_thread_count: int = 0,
     held_comment_count: int = 0,
-    terminal_check: bool = True,
+) -> tuple[MutationIdentity, set[tuple], set[tuple], bool]:
+    identity, current_threads, current_comments, paginated = _read_identity_once(
+        pr, graphql, held_thread_count, held_comment_count
+    )
+    if not paginated:
+        return identity, current_threads, current_comments, True
+
+    # Thread 4057516517: the terminal invariant is a fixed point — two adjacent
+    # complete identity reads that agree; self-validating walks regress forever.
+    for _ in range(SNAPSHOT_ATTEMPTS):
+        successor = _read_identity_once(
+            pr, graphql, held_thread_count, held_comment_count
+        )
+        successor_identity, successor_threads, successor_comments, _ = successor
+        if (identity, current_threads, current_comments) == (
+            successor_identity,
+            successor_threads,
+            successor_comments,
+        ):
+            return identity, current_threads, current_comments, True
+        identity = successor_identity
+        current_threads = successor_threads
+        current_comments = successor_comments
+    return identity, current_threads, current_comments, False
+
+
+def _read_identity_once(
+    pr: int,
+    graphql: Callable[[str, dict], dict],
+    held_thread_count: int,
+    held_comment_count: int,
 ) -> tuple[MutationIdentity, set[tuple], set[tuple], bool]:
     thread_cursor: str | None = None
     comment_cursor: str | None = None
@@ -143,29 +173,4 @@ def read_identity(
             )
             comment_cursor = connection["pageInfo"]["startCursor"]
     assert identity is not None
-    # Thread 4057312018: bracket the validation walk with full composite identities —
-    # recompute and compare the complete identity (updatedAt + totalCounts + tail max-ids)
-    # from the final validation response against the first response's identity. The recursive
-    # L8 invariant: every bracket comparison uses the full identity, never a single field.
-    final_identity = identity_from_root(root)
-    if identity != final_identity:
-        identity = final_identity
-    terminal_matches = True
-    if terminal_check and pages > 1:
-        # Thread 4057392888: TERMINAL invariant: a paginated validation walk accepts
-        # only when its immediately adjacent full-identity read agrees. The accepted
-        # floor is an edit landing between two adjacent reads that both return
-        # byte-identical bodies and timestamps, below GitHub's observable resolution.
-        terminal_identity, terminal_threads, terminal_comments, _ = read_identity(
-            pr,
-            graphql,
-            held_thread_count,
-            held_comment_count,
-            terminal_check=False,
-        )
-        terminal_matches = (identity, current_threads, current_comments) == (
-            terminal_identity,
-            terminal_threads,
-            terminal_comments,
-        )
-    return identity, current_threads, current_comments, terminal_matches
+    return identity, current_threads, current_comments, pages > 1
